@@ -40,8 +40,8 @@ Apenas três PDFs de pesquisa preliminar — **não há monografia, capítulos f
 ## Escopo confirmado
 
 - **Instituição/curso:** Engenharia de Computação, Universidade Federal do Ceará (UFC).
-- **Orientador institucional:** definido (nome ainda não registrado neste arquivo — confirme com o usuário antes de citar).
-- **Prazo de defesa:** ~7 meses a partir de 2026-06-23, ou seja, em torno de **2027-01-23**.
+- **Orientador institucional:** Professor Gilvan
+- **Prazo de defesa:** ~5 meses a partir de 2026-06-23, ou seja, em torno de **2026-11-23**.
 - **Norma de formatação:** **ABNT** (NBR 6023 para referências, NBR 10520 para citações, NBR 14724 para a estrutura da monografia).
 - **Formato de trabalho atual:** Markdown (`.md`) — futuramente migra para um modelo LaTeX. Escreva já com isso em mente: títulos hierárquicos consistentes, citações no formato autor-data (ABNT), referências em lista ao final, evitar marcações que não tenham equivalente em LaTeX.
 - **Tipo de TCC:** monografia bibliográfica **com experimento próprio**.
