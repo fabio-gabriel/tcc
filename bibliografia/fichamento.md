@@ -338,6 +338,7 @@ Este é o **fichamento bibliográfico vivo** do TCC. Cada entrada contém:
 - **Ideia-chave:** Porte do estágio de inferência/rendering do Instant-NGP escrito 100% em Python+Taichi (sem CUDA). Implementa hash encoding, MLP fundido em shared memory, ray marching e volume rendering — ~66 fps a 800x800 numa RTX 3090. Faz workarounds explícitos pela ausência de TensorCore via Taichi.
 - **Relevância TCC:** **Prova de conceito direta** de NeRF/Instant-NGP fora do CUDA. Referência de baseline e ponto de partida para o experimento na RX 9070 XT (basta trocar backend para Vulkan).
 - **Onde citar:** Cap. 4 (metodologia); Cap. 5 (resultados).
+- **Atenção (reconfirmado 2026-08-06):** repositório sem push de código desde 2025-03-22 (~1 ano e 4 meses) — sem manutenção ativa. Verificar compatibilidade com versões atuais de Taichi/Vulkan/ROCm cedo no Sprint 0. Ver `bibliografia/verificacao-experimento-rdna4.md` (item 4).
 
 ### C.5 — Taichi Lang (2023) — Documentação oficial backends [validado_doc_oficial]
 - **Autores:** Taichi Lang Documentation Team
@@ -397,10 +398,10 @@ Este é o **fichamento bibliográfico vivo** do TCC. Cada entrada contém:
 ### C.11 — AMD (2025) — ROCm Documentation [validado_doc_oficial]
 - **Autor:** Advanced Micro Devices, Inc.
 - **Título:** ROCm Documentation — System Requirements / Supported GPUs
-- **Venue:** Documentação oficial ROCm 7.2.4 (production); 7.13.0 (preview)
+- **Venue:** Documentação oficial ROCm 7.14.0 (production, reconfirmado 2026-08-06; era 7.2.4 em 2026-06-23); 7.13.0 (technology preview)
 - **URL:** [rocm.docs.amd.com/projects/install-on-linux/.../system-requirements.html](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html)
-- **Ideia-chave:** Matriz oficial de GPUs suportadas. RDNA 4 (gfx1200/gfx1201, **incluindo RX 9070 XT**, 9070, 9060 XT, 9060 e variantes Radeon AI PRO) entrou na lista de "Supported", restritos a Ubuntu 22.04.5 / 24.04.4 e RHEL 9.7 / 10.1. CDNA 4 (gfx950, MI355X/MI350X) também listado.
-- **Relevância TCC:** **FONTE PRIMÁRIA INDISPENSÁVEL** — confirma que a RX 9070 XT É oficialmente suportada por ROCm 7.x, contrariando o histórico de exclusão de Radeon de consumo. Documentar versão consultada e SO escolhido.
+- **Ideia-chave:** Matriz oficial de GPUs suportadas. RDNA 4 (gfx1200/gfx1201, **incluindo RX 9070 XT**, 9070, 9060 XT, 9060 e variantes Radeon AI PRO) permanece na lista de "Supported", restritos a Ubuntu 22.04.5 / 24.04.4 e RHEL 9.7 / 10.1. CDNA 4 (gfx950, MI355X/MI350X) também listado.
+- **Relevância TCC:** **FONTE PRIMÁRIA INDISPENSÁVEL** — confirma que a RX 9070 XT É oficialmente suportada por ROCm 7.x, contrariando o histórico de exclusão de Radeon de consumo. A linha de produção avançou rapidamente (7.2.4 → 7.14.0 em ~1,5 mês) — documentar a versão exata usada no experimento, dado o ritmo de mudança. Ver `bibliografia/verificacao-experimento-rdna4.md` (item 1).
 - **Onde citar:** Cap. 2 (estado da arte); Cap. 4 (setup experimental).
 
 ### C.12 — AMD (2025) — HIP Programming Model [validado_doc_oficial]
@@ -433,10 +434,10 @@ Este é o **fichamento bibliográfico vivo** do TCC. Cada entrada contém:
 ### C.15 — PyTorch Foundation (2025) — PyTorch ROCm [validado_doc_oficial, verificar versão]
 - **Autor:** PyTorch Foundation
 - **Título:** PyTorch — Get Started Locally (ROCm build)
-- **Venue:** Documentação oficial PyTorch 2.7.0 / ROCm 6.3 (consulta jun/2026; **verificar versão atual antes do experimento**)
+- **Venue:** Documentação oficial PyTorch 2.13.0 / wheels ROCm 7.2 (reconfirmado 2026-08-06; era PyTorch 2.7.0 / ROCm 6.3 em 2026-06-23)
 - **URL:** [pytorch.org/get-started/locally/](https://pytorch.org/get-started/locally/)
-- **Ideia-chave:** PyTorch 2.7.0 estável distribui wheels oficiais para ROCm 6.3 em Linux. API segue idêntica à de CUDA (`torch.cuda.is_available()` continua funcionando), reduzindo barreira de migração de código.
-- **Relevância TCC:** **ACHADO PRÓPRIO**: o build oficial estável referencia ROCm 6.3, enquanto o ROCm que reconhece RDNA 4 é o 7.x → defasagem PyTorch↔ROCm. Documentar como achado.
+- **Ideia-chave:** PyTorch 2.13.0 estável distribui wheels oficiais para ROCm 7.2 em Linux. API segue idêntica à de CUDA (`torch.cuda.is_available()` continua funcionando), reduzindo barreira de migração de código.
+- **Relevância TCC:** **ACHADO PRÓPRIO**: o build oficial estável referencia ROCm 7.2, enquanto o ROCm que reconhece RDNA 4 em produção já está em 7.14.0 → defasagem PyTorch↔ROCm persiste, embora tenha encolhido desde jun/2026 (era 6.3 vs 7.2.4/7.13.0). Documentar como achado, com os números atualizados. Ver `bibliografia/verificacao-experimento-rdna4.md` (item 5).
 - **Onde citar:** Cap. 4 (setup experimental — caveat de versões); Cap. 5 (discussão).
 
 ### C.16 — Davis et al. (2024) — Performance Portability [validado_arxiv]
@@ -458,16 +459,16 @@ Este é o **fichamento bibliográfico vivo** do TCC. Cada entrada contém:
 - **Onde citar:** Cap. 5 (discussão); Cap. 6 (trabalhos futuros).
 - **Atenção:** Paper recente — verificar antes de citar.
 
-### C.18 — Chen; Ibrahim; Liu (2026) — VkSplat [validado_arxiv, **revalidar — paper recente**]
+### C.18 — Chen; Ibrahim; Liu (2026) — VkSplat [validado_arxiv + validado_github, **confirmado real em 2026-08-06; ressalvas abaixo**]
 - **Autores:** Jingxiang Chen, Mohamed Ibrahim, Yang Liu
 - **Título:** VkSplat: High-Performance 3DGS Training in Vulkan Compute
-- **Venue:** Eurographics 2026 — Short Papers (a confirmar)
+- **Venue:** **Submitted to Eurographics 2026 — Short Papers** (confirmado no comentário oficial do arXiv em 2026-08-06 — ainda NÃO é aceitação confirmada; não citar como aceito)
 - **arXiv:** [2605.00219](https://arxiv.org/abs/2605.00219)
-- **URL repo:** github.com/harry7557558/vksplat
+- **URL repo:** github.com/harry7557558/vksplat (129 stars, ativo, último push 2026-07-22)
 - **Ideia-chave:** Pipeline de **TREINAMENTO** de 3D Gaussian Splatting integralmente em Vulkan compute, cross-vendor. Reporta 3,3x speedup e 33% menos VRAM contra baseline CUDA+PyTorch, mantendo qualidade.
-- **Relevância TCC:** **A referência mais alinhada possível ao experimento.** Evidência publicada de que 3DGS treinável fora do CUDA não só funciona como pode SUPERAR o baseline em certas métricas. Validar replicação na RX 9070 XT.
+- **Relevância TCC:** Referência bem alinhada ao experimento — evidência publicada de que 3DGS treinável fora do CUDA funciona e pode superar o baseline em certas métricas. **Ressalva confirmada em 2026-08-06:** o README dos autores lista testes em NVIDIA RTX 3090/4080S/5070, AMD RX 7800 XT (RDNA 3) e Intel UHD — **RX 9070 XT / RDNA 4 não está entre os hardwares testados pelos autores.** O bring-up na 9070 XT no Sprint 0 é, portanto, validação original do TCC, não replicação de resultado já demonstrado no mesmo hardware.
 - **Onde citar:** Cap. 4 (trabalhos correlatos); Cap. 5 (discussão).
-- **Atenção:** Paper muito recente — **abrir o arXiv e o repo pessoalmente** antes de fazer planejamento experimental em cima. Se confirmado, é candidato a baseline forte.
+- **Atenção:** Ver `bibliografia/verificacao-experimento-rdna4.md` (item 3) para o detalhe completo da reconfirmação.
 
 ### C.19 — Iandola et al. (2025) — SqueezeMe [validado_arxiv]
 - **Autores:** Forrest Iandola, Stanislav Pidhorskyi, Igor Santesteban, Divam Gupta et al.
@@ -571,8 +572,9 @@ Papers de 2025-2026 que valem confirmar pessoalmente no arXiv antes de incorpora
 
 - **C.10** XIE et al. (2025) — Bit-Accurate MMA — `arxiv.org/abs/2511.10909`
 - **C.17** HEAKL et al. (2025) — CASS — `arxiv.org/abs/2505.16968`
-- **C.18** CHEN; IBRAHIM; LIU (2026) — VkSplat — `arxiv.org/abs/2605.00219` ← **alvo metodológico crítico, abrir primeiro**
 - **C.19** IANDOLA et al. (2025) — SqueezeMe — `arxiv.org/abs/2412.15171`
+
+**C.18 VkSplat: validado em 2026-08-06** (paper e repo reais, ver detalhe na entrada C.18 e em `bibliografia/verificacao-experimento-rdna4.md`) — removido desta lista de pendências.
 
 ## Lista de leitura prioritária para o aluno
 

@@ -1,0 +1,57 @@
+# macOS
+.DS_Store
+
+# Configuração local do Claude Code — específica de máquina.
+# NÃO versionar: contém settings locais e, nesta máquina, configuração
+# interna de trabalho que não pertence a um repositório pessoal.
+.claude/
+
+# --- Ambiente Python -------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- Artefatos de build (HIP/CUDA/Vulkan/CMake) ----------------------------
+build/
+cmake-build*/
+*.o
+*.so
+*.a
+*.spv
+
+# --- Datasets: dezenas de GB, baixar por script, nunca versionar -----------
+# Os scripts de download e os checksums SÃO versionados; os dados, não.
+datasets/
+data/
+experimentos/**/datasets/
+experimentos/**/data/
+
+# --- Saídas pesadas de treino ----------------------------------------------
+# Checkpoints, nuvens de gaussianas e renders são grandes e reprodutíveis.
+*.ply
+*.pth
+*.ckpt
+*.npz
+output/
+outputs/
+experimentos/**/renders/
+experimentos/**/checkpoints/
+
+# IMPORTANTE: métricas (CSV/JSON), logs de execução e inventários de ambiente
+# são DADOS DE PESQUISA e devem ser versionados. Não adicionar *.csv/*.json aqui.
+
+# --- LaTeX (migração futura para abntex2) ----------------------------------
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.synctex.gz
+*.toc
