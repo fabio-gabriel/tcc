@@ -1,9 +1,11 @@
 # Fichamento Bibliográfico — Estado da Arte
 
-**TCC:** Renderização Neural em Hardware Heterogêneo — Portabilidade e desempenho de NeRF/3DGS em GPUs AMD RDNA 4 (RX 9070 XT)
+**TCC:** Renderização neural em hardware heterogêneo: decomposição do custo de desempenho de backends agnósticos de fornecedor *(título de trabalho — ver `PLANO.md` §1)*
+**Título alternativo:** Renderização Neural em Hardware Heterogêneo — Portabilidade e desempenho de NeRF/3DGS em GPUs AMD RDNA 4 (RX 9070 XT) *(formulação anterior ao reenquadramento)*
 **Aluno:** Fabio Gabriel — Eng. Computação UFC
 **Orientador:** Prof. Gilvan
 **Data inicial deste fichamento:** 2026-06-23
+**Reenquadrado em:** 2026-08-20 — ver `PLANO.md` §2. O eixo temático não mudou; mudou a pergunta de pesquisa, de "medir o gap CUDA × não-CUDA" para "decompor o custo de abstração e explicar sua distribuição pelo pipeline". Consequência bibliográfica: criado o **Eixo E** (metodologia de avaliação e portabilidade de desempenho), que preenche a lacuna de referências metodológicas. Nenhuma entrada dos Eixos A–D foi invalidada.
 
 ---
 
@@ -22,7 +24,7 @@ Este é o **fichamento bibliográfico vivo** do TCC. Cada entrada contém:
   - `validado_github` — repositório verificado em github.com
   - `validado_doc_oficial` — página oficial AMD/PyTorch/ROCm/Taichi
   - `fonte_primaria_inacessivel` — só disponível em domínio fora da allowlist (IEEE, ACM, etc.) — **não citar até revalidar manualmente**
-  - `incerto` — paper recente ou metadado não confirmado em fonte primária
+  - `incerto` — paper recente ou metadado não confirmado em fonte primária. **Todo o Eixo E está neste status desde 2026-08-20** — metadados levantados de memória, nenhum validado
 
 > **Observação metodológica do orientador:** este fichamento é um *mapa de leitura*, **não substitui a leitura dos papers**. Antes de citar qualquer item no Cap. 2-5, leia o paper. A `ideia_chave` aqui é um lembrete, não dispensa a leitura primária. Não invente número de página, equação ou figura — abra o PDF e confira.
 
@@ -544,6 +546,7 @@ Dataset de cenas indoor/outdoor 360° introduzido em Mip-NeRF 360. Benchmark can
 - **Relevância TCC:** Benchmark padrão usado por 3DGS e Mip-NeRF 360 — provavelmente compõe o experimento.
 - **Onde citar:** Cap. 4 (datasets).
 - **Pendência:** validar autores/ano no site oficial tanksandtemples.org (fora da allowlist) ou ACM DL antes da redação final.
+- **Nota (2026-08-20):** marcado como **corte candidato** no Sprint 2 do `PLANO.md` — não acrescenta contraste ao desenho fatorial e a fonte primária segue não validada.
 
 ### D.6 — Jensen et al. (2014) — DTU MVS [fonte_primaria_inacessivel, opcional]
 - **Autores:** Rasmus Jensen, Anders Dahl, George Vogiatzis, Engin Tola, Henrik Aanaes (atribuição não confirmada nesta sessão)
@@ -552,6 +555,71 @@ Dataset de cenas indoor/outdoor 360° introduzido em Mip-NeRF 360. Benchmark can
 - **Ideia-chave:** 124 cenas com ground-truth de scanner estruturado, padrão para multi-view stereo, adotado por NeRF/3DGS em avaliações de geometria.
 - **Relevância TCC:** Opcional se o experimento focar qualidade de imagem (PSNR/LPIPS); essencial se for incluir reconstrução de superfície.
 - **Onde citar:** Cap. 4 (datasets), opcional.
+- **Nota (2026-08-20):** marcado como **corte candidato** no Sprint 2 — o TCC não avalia reconstrução de superfície.
+
+---
+
+## Eixo E — Metodologia de Avaliação e Portabilidade de Desempenho
+
+> **⚠ EIXO NÃO VALIDADO — LEIA ANTES DE USAR.** Este eixo foi criado em **2026-08-20**, junto do reenquadramento científico do TCC (ver `PLANO.md` §2), para preencher uma lacuna identificada no fichamento: havia **zero** referências sobre métricas formais de portabilidade de desempenho, modelos analíticos de desempenho e metodologia de benchmarking científico — num TCC que se declara "monografia bibliográfica **com experimento próprio**".
+>
+> **Todos os metadados abaixo foram levantados de memória, não de fonte primária.** Autores, títulos, anos, venues e numeração de volume/página são **hipóteses de busca**, não fatos verificados. Nenhum item deste eixo pode ser citado antes de abrir a fonte primária e conferir. Vários dependem de domínios ainda não liberados no sandbox (`dl.acm.org`, `ieeexplore.ieee.org`).
+>
+> Status de todos: `incerto`. Prioridade de validação: **alta** — E.1, E.4 e E.5 são os que sustentam o novo enquadramento.
+
+### E.1 — Pennycook; Sewall; Lee — Métrica $\mathbb{PP}$ de portabilidade de desempenho [incerto]
+- **Autores (a confirmar):** S. John Pennycook, Jason D. Sewall, Victor W. Lee
+- **Título (a confirmar):** *A Metric for Performance Portability* (preprint) — e versão em periódico com título distinto, provavelmente *Implications of a metric for performance portability*
+- **Venue (a confirmar):** preprint arXiv ~2016 (`arXiv:1611.07409`, **número a conferir**); versão de periódico em *Future Generation Computer Systems*, ~2019
+- **Ideia-chave (de memória, conferir):** propõe medir portabilidade de desempenho como a **média harmônica das eficiências da aplicação** sobre um conjunto de plataformas, com a propriedade de que a métrica zera se a aplicação não roda em alguma plataforma do conjunto. Distingue *eficiência de aplicação* (contra a melhor implementação conhecida) de *eficiência arquitetural* (contra um teto de hardware).
+- **Relevância TCC:** é o **instrumento formal que faltava**. Transforma "rodei em vários backends" em aplicação de uma métrica estabelecida a um domínio novo. A escolha entre eficiência de aplicação e arquitetural também organiza o Cap. 4.
+- **Onde citar:** Cap. 3 (arcabouço de portabilidade); Cap. 4 (definição da métrica); Cap. 5 (resultado).
+- **Pendência:** confirmar autoria, os dois títulos, o ID do arXiv, e volume/páginas da versão de periódico. Verificar se a média harmônica é sobre eficiências ou sobre seus inversos — **detalhe que muda a fórmula e não pode ser escrito de memória**.
+
+### E.2 — Marowka — crítica à métrica $\mathbb{PP}$ [incerto]
+- **Autor (a confirmar):** Ami Marowka
+- **Título:** **desconhecido.** Há mais de um trabalho do autor questionando a métrica de Pennycook et al. — localizar o(s) correto(s) por busca
+- **Venue / ano:** a determinar
+- **Ideia-chave (a confirmar):** questiona propriedades matemáticas e a interpretabilidade da métrica $\mathbb{PP}$, incluindo o comportamento quando uma plataforma falha e o efeito de agregação num escalar único.
+- **Relevância TCC:** **é o que transforma o Cap. 3 de lista de tecnologias em discussão científica.** Um capítulo que apresenta uma métrica e a crítica a ela demonstra domínio; um que só apresenta a métrica, não. Também abre espaço para uma contribuição própria: H1 (`PLANO.md` §2) afirma que a agregação num escalar mascara heterogeneidade entre estágios do pipeline — o que dialoga diretamente com essa crítica.
+- **Onde citar:** Cap. 3 (debate sobre o instrumento); Cap. 5 (discussão do resultado de H1).
+- **Pendência:** **localizar o trabalho.** Esta entrada é hoje uma pista de busca, não uma referência.
+
+### E.3 — Harrell et al. — portabilidade de desempenho efetiva / P3HPC [incerto]
+- **Autores:** a confirmar (atribuição de memória: Stephen Lien Harrell e coautores)
+- **Título (a confirmar):** algo próximo de *Effective Performance Portability*
+- **Venue (a confirmar):** workshop **P3HPC** (Performance, Portability and Productivity in HPC), associado ao SC, ~2018
+- **Ideia-chave (a confirmar):** discute portabilidade em conjunto com **produtividade** (esforço de desenvolvimento), e o conceito de *code divergence* — quanto o código precisa divergir entre plataformas.
+- **Relevância TCC:** *code divergence* é uma métrica objetiva de portabilidade que substitui com vantagem o "tempo até bring-up", que já está identificado como viciado (`PLANO.md` §8). Mede-se por LOC divergentes entre backends — dado que o experimento produz naturalmente.
+- **Onde citar:** Cap. 3; Cap. 4 (operacionalização da dimensão de portabilidade).
+- **Pendência:** confirmar autoria e título; verificar se o workshop P3HPC tem anais indexados acessíveis.
+
+### E.4 — Williams; Waterman; Patterson (2009) — Roofline [incerto]
+- **Autores (a confirmar):** Samuel Williams, Andrew Waterman, David Patterson
+- **Título (a confirmar):** *Roofline: An Insightful Visual Performance Model for Multicore Architectures*
+- **Venue (a confirmar):** *Communications of the ACM*, vol. 52, n. 4, 2009
+- **Ideia-chave (a confirmar):** modelo visual que relaciona desempenho alcançável a **intensidade aritmética** (FLOP por byte movido), delimitado por um teto de compute e um teto de banda de memória. Permite classificar um kernel como *compute-bound* ou *memory-bound*.
+- **Relevância TCC:** é a âncora bibliográfica para **atribuição de gargalo**. Sem ela, a decomposição por estágio do pipeline (exigida por H1) é medição sem modelo. Com ela, o TCC passa a *explicar* em vez de só *descrever* — que é exatamente a crítica de "falta de produção de ciência" registrada em `PLANO.md` §2.
+- **Onde citar:** Cap. 3 (modelos de desempenho); Cap. 4 (método de atribuição de gargalo); Cap. 5.
+- **Pendência:** ACM DL fora da allowlist. Confirmar volume/número/páginas. Verificar também se convém citar alguma extensão do modelo para GPU.
+
+### E.5 — Hoefler; Belli (2015) — benchmarking científico [incerto]
+- **Autores (a confirmar):** Torsten Hoefler, Roberto Belli
+- **Título (a confirmar):** *Scientific Benchmarking of Parallel Computing Systems*
+- **Venue (a confirmar):** SC15 (ACM/IEEE Supercomputing), 2015
+- **Ideia-chave (a confirmar):** cataloga más práticas correntes na medição e no relato de desempenho em computação paralela, e propõe regras — reportar distribuições e intervalos de confiança em vez de médias nuas, tratar corretamente a variabilidade, não reportar *speedup* de médias sem dispersão.
+- **Relevância TCC:** **preenche o buraco mais grave da bibliografia.** É a referência que legitima o protocolo do Cap. 4 e o tratamento estatístico do Cap. 5. Diretamente ligada ao compromisso de pré-registro do protocolo (`PLANO.md` §3).
+- **Onde citar:** Cap. 4 (metodologia de medição e relato) — provavelmente a referência mais citada do capítulo.
+- **Pendência:** confirmar autoria, título exato e venue; localizar versão acessível (o preprint costuma estar disponível fora do ACM DL — verificar).
+
+### E.6 — Kitchenham; Charters — revisão sistemática [incerto]
+- **Autores (a confirmar):** Barbara Kitchenham, Stuart Charters
+- **Título (a confirmar):** *Guidelines for Performing Systematic Literature Reviews in Software Engineering*
+- **Venue (a confirmar):** relatório técnico EBSE, ~2007
+- **Ideia-chave (a confirmar):** protocolo para revisão sistemática de literatura em engenharia de software — pergunta de pesquisa, critérios de inclusão/exclusão, estratégia de busca, extração de dados, síntese.
+- **Relevância TCC:** **opcional, mas alto retorno para H4.** O eixo "suporte declarado × suporte efetivo" hoje é uma coleção de evidências bem verificadas mas sem protocolo declarado. Aplicar um protocolo de revisão sistemática ao levantamento (issues, matrizes de suporte, releases) converte esse material de "achados" em "estudo sistematizado" — e H4 é o eixo que **não depende de nenhuma execução**, portanto o mais seguro para investir rigor.
+- **Onde citar:** Cap. 4 (método do levantamento de H4).
+- **Pendência:** confirmar ano e numeração do relatório. Avaliar se PRISMA seria alternativa mais apropriada (PRISMA é da área médica, mas de uso crescente em CS).
 
 ---
 
@@ -576,6 +644,15 @@ Papers de 2025-2026 que valem confirmar pessoalmente no arXiv antes de incorpora
 
 **C.18 VkSplat: validado em 2026-08-06** (paper e repo reais, ver detalhe na entrada C.18 e em `bibliografia/verificacao-experimento-rdna4.md`) — removido desta lista de pendências.
 
+## Eixo E inteiro — validar antes de qualquer uso (2026-08-20)
+
+**E.1 a E.6 não foram verificados em fonte primária alguma.** Foram levantados de memória durante o reenquadramento científico para registrar a lacuna metodológica identificada. Autores, títulos, anos, venues e IDs são pistas de busca.
+
+Regra: **nenhum item do Eixo E entra na redação antes de abrir a fonte primária.** Dois casos merecem atenção especial:
+
+- **E.1** — a fórmula da métrica $\mathbb{PP}$ (média harmônica de quê, exatamente) **não pode ser escrita de memória**. Copiar da fonte.
+- **E.2** — o título é desconhecido; a entrada é hoje uma pista, não uma referência. Se o trabalho não for localizado, remover a entrada em vez de citar vagamente.
+
 ## Lista de leitura prioritária para o aluno
 
 Como orientador, esta é a ordem sugerida de leitura para começar a escrever:
@@ -594,6 +671,17 @@ Como orientador, esta é a ordem sugerida de leitura para começar a escrever:
 3. C.16 Davis et al. 2024 — performance portability (inspiração metodológica)
 4. C.11, C.12, C.14 — docs oficiais ROCm, HIP, rocWMMA
 5. C.18 VkSplat (depois de validar) — trabalho correlato direto
+
+**Eixo E — validar e ler (adicionado em 2026-08-20, alta prioridade):**
+
+Este bloco é **pré-requisito do Cap. 4** e sustenta o enquadramento reformulado. Primeiro **validar** os metadados em fonte primária (todos estão `incerto`), depois ler.
+
+1. **E.5** Hoefler; Belli — benchmarking científico → sem isso o Cap. 4 não tem como justificar o protocolo de medição. **Mais urgente do eixo**
+2. **E.1** Pennycook; Sewall; Lee — métrica $\mathbb{PP}$ → instrumento formal da dimensão de portabilidade
+3. **E.4** Williams; Waterman; Patterson — Roofline → âncora para atribuição de gargalo, exigida por H1
+4. **E.2** Marowka — crítica à métrica → converte o Cap. 3 em discussão, não em catálogo. **Localizar o trabalho antes de mais nada**
+5. **E.3** Harrell et al. — *code divergence* → substitui a métrica viciada de "tempo até bring-up"
+6. **E.6** Kitchenham; Charters — revisão sistemática → opcional, reforça H4
 
 **Antes do experimento (Sprint 0/3):**
 1. C.4 Linyou taichi-ngp-renderer — código de partida para NeRF
@@ -616,3 +704,10 @@ Para fechar pendências e validar venues:
 - `tanksandtemples.org` — site oficial Tanks and Temples
 - `roboimagedata.compute.dtu.dk` — DTU MVS oficial
 - `scholar.google.com` — descoberta cruzada (search direto via google.com falhou em algumas tentativas)
+
+**Adicionados em 2026-08-20 para validar o Eixo E:**
+
+- `dl.acm.org` — já listado acima; também necessário para E.4 (Roofline, CACM) e E.5 (SC15)
+- `www.sciencedirect.com` — E.1, versão de periódico em *Future Generation Computer Systems*
+- `htor.inf.ethz.ch` — página do grupo de Torsten Hoefler, onde o preprint de E.5 costuma estar acessível fora do paywall (**verificar**)
+- `dblp.org` — desambiguação de autoria e venue; especialmente útil para localizar E.2 (Marowka) e E.3 (Harrell et al.), cujos títulos exatos são desconhecidos
