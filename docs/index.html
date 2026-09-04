@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>TCC — Painel de acompanhamento</title>
+<style>
+  :root {
+    --bg:        #191919;
+    --bg-2:      #202020;
+    --bg-3:      #252525;
+    --border:    #2f2f2f;
+    --border-2:  #3a3a3a;
+    --txt:       #d4d4d4;
+    --txt-hi:    #efefef;
+    --txt-mid:   #9b9b9b;
+    --txt-dim:   #6f6f6f;
+    --blue:      #529cca;
+    --green:     #4dab6d;
+    --green-bg:  #2b3a2f;
+    --red:       #d15b5b;
+    --red-bg:    #3b2727;
+    --amber:     #c99b47;
+    --amber-bg:  #3a3126;
+    --purple:    #9a6dd7;
+    --purple-bg: #322a3d;
+    --radius: 4px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--txt);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- layout ---------- */
+
+  .shell { display: flex; min-height: 100vh; }
+
+  nav.side {
+    width: 232px;
+    flex: 0 0 232px;
+    border-right: 1px solid var(--border);
+    padding: 22px 12px 40px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  .brand {
+    font-size: 13px;
+    color: var(--txt-mid);
+    padding: 0 10px 2px;
+    letter-spacing: .01em;
+  }
+  .brand strong { color: var(--txt-hi); font-weight: 600; display: block; font-size: 14px; }
+
+  .side-sep { height: 1px; background: var(--border); margin: 16px 10px; }
+
+  nav.side a.navitem {
+    display: block;
+    padding: 5px 10px;
+    color: var(--txt-mid);
+    text-decoration: none;
+    border-radius: var(--radius);
+    font-size: 14px;
+    transition: background .12s, color .12s;
+  }
+  nav.side a.navitem:hover { background: var(--bg-3); color: var(--txt-hi); }
+  nav.side a.navitem.active { background: var(--bg-3); color: var(--txt-hi); font-weight: 500; }
+  nav.side a.navitem .ico { display: inline-block; width: 18px; color: var(--txt-dim); }
+
+  .side-note {
+    padding: 10px;
+    margin: 14px 4px 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--txt-dim);
+    border-top: 1px solid var(--border);
+  }
+  .side-note code { font-size: 11px; }
+
+  main {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 44px 56px 140px;
+    max-width: 900px;
+  }
+
+  /* ---------- typography ---------- */
+
+  h1 {
+    font-size: 34px;
+    line-height: 1.2;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    color: var(--txt-hi);
+    margin: 0 0 6px;
+  }
+  h2 {
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--txt-hi);
+    margin: 46px 0 4px;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--txt-hi);
+    margin: 28px 0 6px;
+  }
+  p { margin: 8px 0; }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: var(--mono);
+    font-size: .88em;
+    background: var(--bg-3);
+    border-radius: 3px;
+    padding: 1.5px 5px;
+    color: #d99a9a;
+  }
+  .lead { color: var(--txt-mid); font-size: 15px; margin: 0 0 4px; }
+  .src {
+    font-size: 11.5px;
+    color: var(--txt-dim);
+    font-family: var(--mono);
+  }
+  h2 .src, h3 .src { margin-left: 8px; font-weight: 400; }
+
+  hr.rule { border: 0; border-top: 1px solid var(--border); margin: 40px 0 0; }
+
+  /* ---------- pills ---------- */
+
+  .pill {
+    display: inline-block;
+    font-size: 11.5px;
+    line-height: 1.5;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-weight: 500;
+    white-space: nowrap;
+    vertical-align: 1px;
+  }
+  .pill.ok      { background: var(--green-bg);  color: #86cf9f; }
+  .pill.open    { background: var(--bg-3);      color: var(--txt-mid); }
+  .pill.block   { background: var(--red-bg);    color: #e59595; }
+  .pill.warn    { background: var(--amber-bg);  color: #dcb877; }
+  .pill.cut     { background: var(--bg-3);      color: var(--txt-dim); }
+  .pill.info    { background: var(--purple-bg); color: #bda2e6; }
+
+  /* ---------- hero / countdown ---------- */
+
+  .hero {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 22px 0 8px;
+  }
+  .stat {
+    flex: 1 1 150px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 13px 15px;
+  }
+  .stat .k {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .07em;
+    color: var(--txt-dim);
+    margin-bottom: 3px;
+  }
+  .stat .v {
+    font-size: 25px;
+    font-weight: 650;
+    color: var(--txt-hi);
+    letter-spacing: -.02em;
+    line-height: 1.15;
+  }
+  .stat .v small { font-size: 13px; font-weight: 400; color: var(--txt-mid); }
+  .stat .sub { font-size: 12px; color: var(--txt-dim); margin-top: 2px; }
+  .stat.alarm { border-color: #4a2c2c; }
+  .stat.alarm .v { color: #e59595; }
+
+  /* ---------- callout ---------- */
+
+  .callout {
+    display: flex;
+    gap: 11px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border-2);
+    border-radius: var(--radius);
+    padding: 12px 15px;
+    margin: 16px 0;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .callout .ci { flex: 0 0 auto; color: var(--txt-dim); }
+  .callout .cb { min-width: 0; }
+  .callout .cb > :first-child { margin-top: 0; }
+  .callout .cb > :last-child { margin-bottom: 0; }
+  .callout.red    { border-left-color: var(--red); }
+  .callout.amber  { border-left-color: var(--amber); }
+  .callout.blue   { border-left-color: var(--blue); }
+  .callout.green  { border-left-color: var(--green); }
+  .callout .ct { font-weight: 600; color: var(--txt-hi); }
+
+  /* ---------- todo ---------- */
+
+  .todo { margin: 6px 0 0; }
+  .todo .item {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    padding: 5px 8px 5px 6px;
+    border-radius: var(--radius);
+    line-height: 1.55;
+  }
+  .todo .item:hover { background: var(--bg-2); }
+  .todo .item input[type=checkbox] {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: 0 0 auto;
+    width: 15px; height: 15px;
+    margin: 5px 0 0;
+    border: 1.5px solid #575757;
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    position: relative;
+    transition: background .1s, border-color .1s;
+  }
+  .todo .item input[type=checkbox]:hover { border-color: #767676; }
+  .todo .item input[type=checkbox]:checked {
+    background: var(--blue);
+    border-color: var(--blue);
+  }
+  .todo .item input[type=checkbox]:checked::after {
+    content: "";
+    position: absolute;
+    left: 3.5px; top: .5px;
+    width: 4px; height: 8px;
+    border: solid #fff;
+    border-width: 0 1.8px 1.8px 0;
+    transform: rotate(45deg);
+  }
+  .todo .item label { cursor: pointer; min-width: 0; }
+  .todo .item.done label { color: var(--txt-dim); text-decoration: line-through; text-decoration-color: #4a4a4a; }
+  .todo .item .tags { margin-left: 6px; }
+  .todo .item .why {
+    display: block;
+    font-size: 12.5px;
+    color: var(--txt-dim);
+    line-height: 1.5;
+    margin-top: 1px;
+  }
+  .todo .item.fixed input[type=checkbox] {
+    background: #3a3a3a; border-color: #3a3a3a; cursor: default;
+  }
+  .todo .item.fixed input[type=checkbox]::after {
+    content: ""; position: absolute; left: 3.5px; top: .5px;
+    width: 4px; height: 8px; border: solid var(--txt-dim);
+    border-width: 0 1.8px 1.8px 0; transform: rotate(45deg);
+  }
+  .todo .item.fixed label { color: var(--txt-dim); text-decoration: line-through; text-decoration-color: #454545; cursor: default; }
+
+  .todo-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+    padding-left: 6px;
+    flex-wrap: wrap;
+  }
+  button.btn {
+    font-family: inherit;
+    font-size: 12.5px;
+    color: var(--txt-mid);
+    background: var(--bg-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    padding: 4px 11px;
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  button.btn:hover { background: var(--bg-3); color: var(--txt-hi); border-color: #4a4a4a; }
+  .counter { font-size: 12.5px; color: var(--txt-dim); }
+  .counter b { color: var(--txt-mid); font-weight: 600; }
+
+  /* ---------- sprint cards ---------- */
+
+  .sprint {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 12px 0;
+    overflow: hidden;
+    background: var(--bg-2);
+  }
+  .sprint.now { border-color: #3f5a70; }
+  .sprint > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 12px 16px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .sprint > summary::-webkit-details-marker { display: none; }
+  .sprint > summary:hover { background: var(--bg-3); }
+  .sprint .stitle { font-weight: 600; color: var(--txt-hi); font-size: 15px; }
+  .sprint .sdates { font-size: 12.5px; color: var(--txt-dim); font-family: var(--mono); }
+  .sprint .sbody { padding: 2px 16px 18px; border-top: 1px solid var(--border); }
+  .sprint .sgoal { font-size: 13.5px; color: var(--txt-mid); margin: 12px 0 2px; }
+  .sprint .sout { font-size: 13px; color: var(--txt-dim); margin: 6px 0 8px; }
+  .sprint .sout b { color: var(--txt-mid); font-weight: 600; }
+
+  /* ---------- timeline ---------- */
+
+  .timeline { margin: 18px 0 6px; }
+  .tl-row { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; font-size: 12.5px; }
+  .tl-lab { flex: 0 0 116px; color: var(--txt-mid); }
+  .tl-bar { flex: 1 1 auto; height: 20px; background: var(--bg-2); border-radius: 3px; position: relative; overflow: hidden; }
+  .tl-fill { position: absolute; top: 0; bottom: 0; background: #34414d; border-radius: 3px; }
+  .tl-fill.now { background: #3f6280; }
+  .tl-fill.done { background: #2f4a38; }
+  .tl-days { flex: 0 0 52px; text-align: right; color: var(--txt-dim); font-family: var(--mono); font-size: 11.5px; }
+  .tl-today { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--red); z-index: 3; }
+
+  /* ---------- tables ---------- */
+
+  table.t {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+    margin: 14px 0;
+  }
+  table.t th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--txt-mid);
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 6px 10px 6px 0;
+    border-bottom: 1px solid var(--border-2);
+    vertical-align: bottom;
+  }
+  table.t td {
+    padding: 9px 10px 9px 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    line-height: 1.55;
+  }
+  table.t tr:last-child td { border-bottom: 0; }
+  table.t td:first-child { color: var(--txt-hi); }
+
+  /* ---------- hypothesis ---------- */
+
+  .hyp {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 13px 16px;
+    margin: 11px 0;
+    background: var(--bg-2);
+  }
+  .hyp .hh { font-weight: 600; color: var(--txt-hi); font-size: 14.5px; }
+  .hyp .hb { font-size: 14px; margin: 5px 0 0; }
+  .hyp .hf {
+    font-size: 13px;
+    color: var(--txt-mid);
+    margin-top: 9px;
+    padding-top: 9px;
+    border-top: 1px dashed var(--border-2);
+  }
+  .hyp .hf b { color: var(--amber); font-weight: 600; }
+
+  /* ---------- checklist blocks (coleta) ---------- */
+
+  .clist { margin: 8px 0 0; padding: 0; list-style: none; }
+  .clist li {
+    position: relative;
+    padding: 4px 0 4px 20px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .clist li::before {
+    content: "";
+    position: absolute;
+    left: 3px; top: 12px;
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #4d4d4d;
+  }
+  .clist li .n { display: block; font-size: 12.5px; color: var(--txt-dim); }
+
+  .qref { font-size: 13px; color: var(--txt-mid); }
+
+  .toast {
+    position: fixed;
+    left: 50%; bottom: 26px;
+    transform: translate(-50%, 14px);
+    background: #2b2b2b;
+    border: 1px solid var(--border-2);
+    color: var(--txt-hi);
+    font-size: 13px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s, transform .18s;
+    z-index: 50;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 820px) {
+    .shell { flex-direction: column; }
+    nav.side {
+      width: auto; flex: none; height: auto; position: static;
+      border-right: 0; border-bottom: 1px solid var(--border);
+      padding: 16px 12px;
+    }
+    nav.side .navwrap { display: flex; flex-wrap: wrap; gap: 2px; }
+    .side-note { display: none; }
+    .side-sep { margin: 12px 10px; }
+    main { padding: 28px 20px 100px; }
+    h1 { font-size: 27px; }
+    .tl-lab { flex: 0 0 84px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <nav class="side">
+    <div class="brand">
+      <strong>TCC · Fabio Gabriel</strong>
+      Renderização neural em hardware heterogêneo
+    </div>
+    <div class="side-sep"></div>
+    <div class="navwrap">
+      <a class="navitem" href="#agora"><span class="ico">→</span>Agora</a>
+      <a class="navitem" href="#cronograma"><span class="ico">▤</span>Cronograma</a>
+      <a class="navitem" href="#coleta"><span class="ico">◎</span>Coleta de dados</a>
+      <a class="navitem" href="#enquadramento"><span class="ico">◈</span>Enquadramento</a>
+    </div>
+    <div class="side-note">
+      Este painel é uma <b>projeção</b>. A fonte de verdade é
+      <code>PLANO.md</code> — §2 para o enquadramento.
+      Se divergir, o markdown está certo e o site está desatualizado.
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ============================ AGORA ============================ -->
+    <section id="agora">
+      <h1>Agora</h1>
+      <p class="lead">O que fazer hoje, e o que não esquecer ao fazer.</p>
+
+      <div class="hero" id="hero"></div>
+
+      <div id="sprint-atual"></div>
+
+      <h2>Bloqueios ativos <span class="src">PLANO.md §8 · inventário 2026-08-18</span></h2>
+      <p class="qref">Nenhum destes é opcional: cada um impede a rota Vulkan de subir. Resolver antes de tentar bring-up.</p>
+
+      <table class="t">
+        <thead><tr><th style="width:31%">Bloqueio</th><th>Consequência</th><th style="width:26%">Saída</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Python 3.14.4 é o único interpretador</td>
+            <td>Wheels de PyTorch-ROCm e Taichi não cobrem 3.14. <b>Nada instala como está.</b></td>
+            <td>Instalar 3.10–3.13 secundário. Caminho crítico.</td>
+          </tr>
+          <tr>
+            <td>Toolchain ausente</td>
+            <td>Sem <code>gcc</code>/<code>clang</code>, <code>cmake</code>, <code>pip</code>, <code>glslc</code>/<code>glslangValidator</code>, <code>vulkan-tools</code>. VkSplat não compila.</td>
+            <td><code>vulkan-tools</code> + compiladores de shader primeiro.</td>
+          </tr>
+          <tr>
+            <td>Ubuntu 26.04 fora da matriz ROCm <span class="pill info">é dado de H4</span></td>
+            <td>ROCm exige 24.04.4/22.04.5. LTS corrente não é suportado.</td>
+            <td>Decisão pendente §7. Não bloqueia Vulkan.</td>
+          </tr>
+          <tr>
+            <td>Usuário fora dos grupos <code>render</code>/<code>video</code></td>
+            <td>Pode barrar acesso a <code>/dev/kfd</code>. Não testado — os nós exibem ACL POSIX.</td>
+            <td>Testar; adicionar aos grupos se falhar.</td>
+          </tr>
+          <tr>
+            <td>15 GiB de RAM</td>
+            <td>Cenas grandes de Mip-NeRF 360 (<code>bicycle</code>, <code>garden</code>) e COLMAP podem não caber.</td>
+            <td>Synthetic-NeRF como dataset principal.</td>
+          </tr>
+          <tr>
+            <td>GPU não desambiguada</td>
+            <td>O inventário viu <code>Navi 48 [1002:7550]</code>, string que cobre 9070 / 9070 XT / 9070 GRE.</td>
+            <td>Confirmar o modelo exato antes de reportar qualquer número.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Ordem do caminho crítico <span class="src">PLANO.md §5</span></h2>
+      <div class="callout blue">
+        <span class="ci">◈</span>
+        <div class="cb">
+          <span class="ct">Vulkan primeiro, ROCm depois (ou nunca).</span>
+          <p>A pilha Vulkan é a única já parcialmente pronta na máquina — RADV e <code>libvulkan1</code> instalados.
+          Não depende de ROCm, nem da restrição de SO, nem dos grupos <code>render</code>/<code>video</code>.</p>
+          <p style="font-family:var(--mono);font-size:12.5px;color:var(--txt-mid);margin-top:8px">
+            <code>vulkan-tools</code> + shader compilers &nbsp;→&nbsp; confirmar <code>VK_KHR_cooperative_matrix</code> &nbsp;→&nbsp; VkSplat &nbsp;→&nbsp; Taichi/Vulkan
+          </p>
+        </div>
+      </div>
+
+      <h2>Decisões pendentes <span class="src">PLANO.md §7</span></h2>
+      <table class="t">
+        <thead><tr><th style="width:29%">Decisão</th><th>Situação</th><th style="width:19%">Quando</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Sistema operacional</td>
+            <td>Dual-boot 24.04 traz ROCm de volta como rota executável, ou permanecer no 26.04 e manter ROCm só como objeto documental de H4.</td>
+            <td>Semana 1</td>
+          </tr>
+          <tr>
+            <td>Estratégia LaTeX</td>
+            <td>Montar esqueleto <code>abntex2</code> agora e escrever direto em LaTeX <span class="pill ok">mais seguro</span>, ou manter <code>.md</code> e migrar no Sprint 4. Migrar a 5 dias do depósito é risco desnecessário.</td>
+            <td>Semana 1 · decidir no Sprint 2</td>
+          </tr>
+          <tr>
+            <td>Requisitos formais de depósito UFC</td>
+            <td>Ficha catalográfica, folha de aprovação, formato de arquivo, canal de entrega. O próprio plano manda verificar na semana 1, não no fim.</td>
+            <td>Semana 1</td>
+          </tr>
+          <tr>
+            <td>Datasets finais</td>
+            <td>Synthetic-NeRF é o principal. Mip-NeRF 360 entra só se a RAM segurar. Tanks and Temples cortado.</td>
+            <td>Sprint 2</td>
+          </tr>
+          <tr>
+            <td>Instrumentação de energia</td>
+            <td>A via <code>sysfs</code>/hwmon já reportou 26 W em idle sem ROCm — o gate de H3 é atendível sem <code>rocm-smi</code> e sem wattímetro externo.</td>
+            <td>Sprint 0 · validar</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <hr class="rule">
+    </section>
+
+    <!-- ========================= CRONOGRAMA ========================= -->
+    <section id="cronograma">
+      <h1>Cronograma e sprints</h1>
+      <p class="lead">24/ago → 06/nov/2026 · 10 semanas e 5 dias · sem margem para atraso.</p>
+
+      <div class="callout red">
+        <span class="ci">!</span>
+        <div class="cb">
+          <span class="ct">06/nov é depósito, não defesa.</span>
+          <p>A monografia precisa estar <b>completa e formatada em ABNT</b> nessa data. Não existe "terminar depois".
+          Defesa, slides e correções pós-banca são trabalho posterior e ficam fora desta janela — mas isso não compra tempo de escrita.</p>
+        </div>
+      </div>
+
+      <div class="timeline" id="timeline"></div>
+      <p class="src" style="padding-left:126px">A linha vermelha é hoje.</p>
+
+      <h2>Consequências da compressão <span class="src">PLANO.md §4</span></h2>
+      <ul class="clist">
+        <li><b>Os "cortes candidatos" deixaram de ser opcionais.</b> Em 17 semanas eram avaliáveis; em 11 são o que torna o plano executável. Tratar como escopo-base e reincorporar item a item só se houver folga real.</li>
+        <li><b>Cap. 4 (Metodologia) migrou do Sprint 4 para o Sprint 2.</b> Não é conveniência: o pré-registro exige o protocolo escrito e commitado <i>antes</i> da execução.</li>
+        <li><b>Cap. 6 (Conclusão) migrou para o Sprint 4</b>, junto do Cap. 5, enquanto os resultados estão frescos.</li>
+        <li><b>Sprint 5 tem 5 dias úteis</b> e não cabe mais que Cap. 1, resumo/abstract, revisão final e depósito. Qualquer tarefa estrutural que sobre para essa semana é risco direto ao depósito.</li>
+        <li><b>A migração para LaTeX saiu do Sprint 5.</b> Ver decisões pendentes.</li>
+        <li><b>Não há margem.</b> O cronograma original embutia ~3 semanas finais de folga; agora não há nenhuma.</li>
+      </ul>
+
+      <h2>Sprints</h2>
+      <p class="qref">Marcadores: <span class="pill cut">cortado</span> item removido do escopo-base ·
+        <span class="pill warn">rebaixado</span> vira tentativa documentada com limite de tempo ·
+        <span class="pill info">substituído</span> troca de método ·
+        <span class="pill ok">feito</span> concluído e registrado no <code>PLANO.md</code>.</p>
+
+      <div id="sprints"></div>
+
+      <hr class="rule">
+    </section>
+
+    <!-- ========================== COLETA ========================== -->
+    <section id="coleta">
+      <h1>Coleta de dados</h1>
+      <p class="lead">O que registrar, quando registrar, e por que aquele número não serve sem isto.</p>
+
+      <div class="callout amber">
+        <span class="ci">!</span>
+        <div class="cb">
+          <span class="ct">Dado não registrado no momento da execução é dado perdido.</span>
+          <p>Reconstruir de memória "quantas tentativas de instalação foram" ou "qual era a versão do driver" não é possível
+          duas semanas depois. Tudo abaixo é métrica declarada em <code>PLANO.md</code> §3 — não é burocracia, é o Cap. 5.</p>
+        </div>
+      </div>
+
+      <h2>Regras que valem para toda execução</h2>
+      <ul class="clist">
+        <li><b>Pré-registro antes de executar.</b> O Cap. 4 — protocolo, N de rodadas, critério de PSNR-alvo, versões fixadas, definição de sucesso e de descarte de rodada — é escrito e <b>commitado em git antes</b> da primeira execução do Sprint 3. O histórico do repositório é a prova de que o protocolo não foi ajustado aos resultados.
+          <span class="n">O commit é seu. Eu não commito por você — mas lembro.</span></li>
+        <li><b>Ordem de execução: a coluna da 5070 Ti primeiro.</b> <code>gsplat</code>(CUDA) × VkSplat(Vulkan) × Taichi→CUDA × Taichi→Vulkan, todos na mesma instância. É a afirmação principal e a única sob controle total. O lado AMD vem depois.
+          <span class="n">Se você rodar o lado AMD primeiro e o tempo acabar, você fica sem a afirmação principal.</span></li>
+        <li><b>Nunca reportar média nua.</b> N ≥ 3 rodadas, com média, desvio padrão e intervalo de confiança. Nenhum <i>speedup</i> de médias sem indicar dispersão.</li>
+        <li><b>N rodadas na mesma instância.</b> Rodar as repetições em hosts diferentes confunde variância de host com variância de execução. Repetir um subconjunto num segundo host — separadamente — para estimar a variância entre hosts.</li>
+        <li><b>H3 é potência de placa, nunca energia do sistema.</b> O lado NVIDIA roda em host de nuvem não-controlado. Energia system-level é indefensável; telemetria interna da GPU é o limite.</li>
+        <li><b>Marcar o que é pareado e o que é indireto.</b> Onde a execução pareada não cobrir e você citar número de paper, dizer isso no texto explicitamente.</li>
+        <li><b>Resultado negativo é resultado.</b> Uma instalação que falha é evidência de H4, não fracasso. Registrar com a mesma disciplina de um resultado positivo.</li>
+      </ul>
+
+      <h2><span class="pill open">antes</span> &nbsp;Fixar o ambiente</h2>
+      <p class="qref">Sem isto, a rodada não é reproduzível e não entra na tabela.</p>
+      <ul class="clist">
+        <li><b>Commit SHA de cada repositório</b> usado (<code>vksplat</code>, <code>taichi-ngp-renderer</code>, <code>gsplat</code>, upstream do 3DGS). Forkar e fixar — não confiar em <code>main</code>.</li>
+        <li><b>Versões fixadas</b> em <code>requirements.txt</code> / Dockerfile: Python, PyTorch, Taichi, ROCm/CUDA, driver, Mesa.</li>
+        <li><b>Digest da imagem Docker</b> da vast.ai — não a tag. A instância é efêmera e desaparece ao ser liberada.</li>
+        <li><b>Especificações do host alugado:</b> CPU, RAM, <b>lanes PCIe</b>, disco. Rigs de mineração com riser x1/x4 são comuns e fazem o lado NVIDIA parecer artificialmente lento.
+          <span class="n">Filtrar por PCIe x16 na seleção da instância. Treino de NeRF/3DGS tem componente real de CPU e I/O.</span></li>
+        <li><b><code>nvidia-smi -q</code> completo</b> salvo por sessão de aluguel.</li>
+        <li><b>Dataset e cena identificados</b>, com o critério de PSNR-alvo já definido: ex. ≥ 30 dB em Synthetic-NeRF, ≥ 27 dB em Mip-NeRF 360.</li>
+      </ul>
+
+      <h2><span class="pill warn">durante</span> &nbsp;Cronometrar, contar, anotar</h2>
+      <ul class="clist">
+        <li><b>Horas até o primeiro treino bem-sucedido.</b> Métrica de portabilidade — comece o cronômetro no primeiro comando, não quando já estiver funcionando.
+          <span class="n">Ressalva conhecida: a vast.ai entrega imagem com CUDA+PyTorch pré-construídos, então "tempo até bring-up" favorece CUDA por artefato do provedor. Escolher e declarar no Cap. 4: (a) medir dos dois lados a partir de imagem base limpa, (b) abandonar a métrica e ficar com tamanho de patch + contagem de bugs, ou (c) reportar com ressalva explícita.</span></li>
+        <li><b>Número de tentativas de instalação.</b> Instalou no primeiro try? Se não, quantas vezes e o que mudou entre elas.</li>
+        <li><b>Cada bug e quirk, com link da issue upstream</b> quando existir. Se for inédito, reportar upstream — isso é contribuição do TCC, não desvio.</li>
+        <li><b>LOC modificadas</b> sobre o upstream para fazer rodar em RDNA 4. Proxy direto de custo de portabilidade.</li>
+        <li><b>Amostragem de potência a intervalo ≤ 1 s</b>, em background durante toda a execução.
+          <span class="n">AMD: <code>/sys/class/drm/card1/device/hwmon/hwmon5/power1_average</code> — já validado, funciona sem ROCm. NVIDIA: <code>nvidia-smi --query-gpu=power.draw</code>.</span></li>
+        <li><b>Temperatura da GPU junto da potência.</b> Temperatura afeta clocks, que afetam potência — sem ela a leitura de energia não é interpretável.</li>
+        <li><b>Decomposição por estágio do pipeline:</b> projeção → tile binning/ordenação → rasterização/composição alpha → backward.
+          <span class="n">Esta é a medição que torna H1 testável. Sem ela o TCC volta a ser cronometragem de tempo total. Instrumentar por marcadores no código e/ou profiler — Radeon GPU Profiler no lado Vulkan, Nsight no lado CUDA.</span></li>
+      </ul>
+
+      <h2><span class="pill ok">depois</span> &nbsp;Consolidar</h2>
+      <ul class="clist">
+        <li><b>Tempo de treinamento até o PSNR-alvo</b>, por rodada.</li>
+        <li><b>FPS de inferência</b> a 800×800 e 1920×1080.</li>
+        <li><b>Qualidade:</b> PSNR, SSIM, LPIPS.</li>
+        <li><b>Energia integrada</b> a partir das amostras: Wh por treinamento e J por frame renderizado. Reportar potência média, pico e desvio.</li>
+        <li><b>Distribuição, não média:</b> média, desvio padrão e intervalo de confiança de cada célula.</li>
+        <li><b>CSV/JSON versionado no repositório</b> — dados brutos, não só a tabela final do capítulo.</li>
+        <li><b>Veredito de cada hipótese contra seu critério de falsificação</b>, incluindo as refutadas. Uma hipótese refutada e bem discutida vale mais que uma confirmada sem critério.</li>
+      </ul>
+
+      <h2>Desenho fatorial: o que cada célula habilita <span class="src">PLANO.md §3</span></h2>
+      <p class="qref">A célula decisiva é a coluna da 5070 Ti: ali o hardware é constante e só o backend varia.</p>
+      <table class="t">
+        <thead><tr><th style="width:30%">Implementação / backend</th><th style="width:15%">RTX 5070 Ti</th><th style="width:15%">RX 9070 XT</th><th>Contraste</th></tr></thead>
+        <tbody>
+          <tr><td><code>gsplat</code> — CUDA nativo</td><td>sim</td><td>—</td><td>âncora "nativo"</td></tr>
+          <tr><td><code>VkSplat</code> — Vulkan compute</td><td>sim</td><td>sim</td><td><b>custo do backend</b> (mesma máquina) e <b>efeito do hardware</b> (mesmo binário, duas GPUs)</td></tr>
+          <tr><td><code>taichi-ngp-renderer</code> → CUDA</td><td>sim</td><td>—</td><td>custo do backend dentro da DSL</td></tr>
+          <tr><td><code>taichi-ngp-renderer</code> → Vulkan</td><td>sim</td><td>sim</td><td>replicação do contraste num segundo pipeline</td></tr>
+        </tbody>
+      </table>
+
+      <hr class="rule">
+    </section>
+
+    <!-- ======================= ENQUADRAMENTO ======================= -->
+    <section id="enquadramento">
+      <h1>Enquadramento científico</h1>
+      <p class="lead">Reformulado em 2026-08-20. <code>PLANO.md</code> §2 é a fonte de verdade.</p>
+
+      <h3>Título de trabalho</h3>
+      <p style="font-size:16px;color:var(--txt-hi)">Renderização neural em hardware heterogêneo: decomposição do custo de desempenho de backends agnósticos de fornecedor</p>
+      <p class="src">EN — Neural rendering on heterogeneous hardware: decomposing the performance cost of vendor-agnostic backends</p>
+
+      <div class="callout green">
+        <span class="ci">◈</span>
+        <div class="cb">
+          <span class="ct">O tema não mudou; a pergunta mudou.</span>
+          <p>O enquadramento anterior — "medir o gap CUDA × não-CUDA em 4 dimensões" — produzia benchmarking, não ciência:
+          fazia variar <b>três fatores ao mesmo tempo</b> (hardware, backend, implementação), tornando o resultado inatribuível,
+          e afirmava <b>magnitude</b> (que envelhece a cada release de driver) em vez de <b>mecanismo</b> (que generaliza).
+          A crítica de "falta de produção de ciência" procede contra o desenho anterior e está endereçada aqui.</p>
+        </div>
+      </div>
+
+      <h2>Pergunta de pesquisa</h2>
+      <p style="font-size:16px;color:var(--txt-hi);border-left:3px solid var(--border-2);padding-left:14px;margin:12px 0">
+        Qual é o custo de desempenho de adotar backends agnósticos de fornecedor (Vulkan, Taichi) em lugar de CUDA nativo
+        em pipelines de renderização neural, e como esse custo se distribui entre os estágios do pipeline?
+      </p>
+      <ol style="color:var(--txt-mid);font-size:14px;padding-left:22px">
+        <li>O gap total entre execução CUDA nativa e backend portátil pode ser <b>decomposto</b> em contribuições separáveis de hardware, backend e implementação?</li>
+        <li>O custo de abstração é <b>uniforme</b> ao longo do pipeline, ou concentra-se em estágios de acesso irregular (ordenação, atômicas) frente a estágios dominados por GEMM densa?</li>
+        <li>Qual a defasagem entre <b>suporte declarado</b> e <b>suporte efetivo</b> no stack de compute aberto (ROCm) para GPUs RDNA de consumo?</li>
+      </ol>
+
+      <h2>Hipóteses <span class="src">mecanismo, não magnitude</span></h2>
+      <p class="qref">Cada uma declara o que a falsificaria. Ao escrever qualquer capítulo, verificar se a afirmação ainda respeita isso.</p>
+
+      <div class="hyp">
+        <div class="hh">H1 · heterogeneidade do custo de abstração</div>
+        <p class="hb">O custo de adotar um backend agnóstico de fornecedor <b>não é uniforme</b> ao longo do pipeline de 3DGS:
+        concentra-se nos estágios dominados por ordenação e operações atômicas (tile binning, composição alpha)
+        e é substancialmente menor nos estágios dominados por GEMM densa.</p>
+        <p class="hf"><b>Falsificação:</b> se o overhead relativo por estágio for aproximadamente constante dentro da variância medida,
+        H1 é falsa e o custo de abstração é um fator multiplicativo global.</p>
+      </div>
+
+      <div class="hyp">
+        <div class="hh">H2 · decomposição fatorial</div>
+        <p class="hb">O gap total entre <code>gsplat</code>(CUDA)@NVIDIA e <code>VkSplat</code>(Vulkan)@AMD decompõe-se de forma
+        aproximadamente separável em efeito de hardware, efeito de backend e efeito de implementação,
+        estimáveis por contrastes <b>intra-máquina</b>.</p>
+        <p class="hf"><b>Falsificação:</b> se a soma dos contrastes intra-máquina não reconstruir o gap total dentro da variância,
+        existe interação não modelada entre os fatores — o que é resultado positivo e deve ser caracterizado, não descartado.</p>
+      </div>
+
+      <div class="hyp">
+        <div class="hh">H3 · energia como função do backend</div>
+        <p class="hb">Na <b>mesma</b> máquina e mesmo dataset, a energia por treinamento varia entre backends de forma
+        não proporcional ao tempo de execução — isto é, o backend altera a eficiência energética além do que a diferença de tempo explica.</p>
+        <p class="hf"><b>Falsificação:</b> se J/treinamento for aproximadamente proporcional ao tempo em todos os backends,
+        H3 é falsa e a energia não acrescenta informação sobre o tempo.</p>
+      </div>
+
+      <div class="hyp">
+        <div class="hh">H4 · assimetria do suporte declarado × efetivo</div>
+        <p class="hb">A defasagem entre suporte declarado (matriz oficial do fornecedor) e suporte efetivo
+        (o que compila, roda e produz resultado correto) no stack ROCm é <b>estruturalmente assimétrica</b>
+        entre CDNA (datacenter) e RDNA (consumo), e não se reduz monotonicamente com o tempo.</p>
+        <p class="hf"><b>Falsificação:</b> se, ao longo da janela de observação, os indicadores de defasagem em RDNA
+        convergirem para os de CDNA, H4 é falsa.</p>
+      </div>
+
+      <h2>Hierarquia de afirmações <span class="src">por força de evidência</span></h2>
+      <div class="callout blue">
+        <span class="ci">◈</span>
+        <div class="cb">
+          <span class="ct">Se o eixo cross-vendor desabar, o TCC permanece de pé.</span>
+          <p>Decisão metodológica central: <b>não tentar blindar a comparação cross-vendor</b> — ela é inblindável
+          (host de nuvem não-controlado, código distinto dos dois lados, drivers distintos). Em vez de blindar, hierarquizar.
+          O risco de naufrágio por falha de bring-up deixa de existir.</p>
+        </div>
+      </div>
+      <table class="t">
+        <thead><tr><th style="width:14%">Nível</th><th>Afirmação</th><th style="width:22%">Controle</th><th style="width:20%">Depende de</th></tr></thead>
+        <tbody>
+          <tr><td><span class="pill ok">principal</span></td><td>Custo do backend portátil frente ao nativo, <b>na mesma máquina</b>, mesmo dataset, mesmo commit</td><td>Total — só o backend varia</td><td>Uma máquina funcionando</td></tr>
+          <tr><td><span class="pill info">secundária</span></td><td>Efeito do hardware com implementação constante (mesmo binário Vulkan em duas GPUs)</td><td>Parcial — host difere</td><td>Acesso às duas GPUs</td></tr>
+          <tr><td><span class="pill warn">exploratória</span></td><td>Comparação cross-vendor agregada (CUDA@NVIDIA × Vulkan@AMD)</td><td>Baixo — três fatores variam</td><td>Execução pareada completa</td></tr>
+          <tr><td><span class="pill open">bibliográfica</span></td><td>H4, suporte declarado × efetivo</td><td>N/A — evidência documental datada</td><td>Nenhuma execução</td></tr>
+        </tbody>
+      </table>
+      <p class="qref">O Cap. 5 estrutura-se por <b>esta hierarquia</b>, não pelas 4 dimensões de métrica.
+      A dimensão é <i>como</i> se mede; a hierarquia é <i>o quanto se pode afirmar</i>.</p>
+
+      <h2>Papel do ROCm no enquadramento atual</h2>
+      <p>ROCm deixou de ser rota experimental obrigatória e passou a <b>objeto de análise documental</b> (H4):
+      matriz de suporte, os 5 bugs gfx1201 rastreados, descompasso PyTorch ↔ ROCm, restrição de SO.
+      Esse material já está verificado em <code>bibliografia/verificacao-experimento-rdna4.md</code> e sustenta H4
+      <b>sem depender de nenhuma instalação bem-sucedida</b>.</p>
+      <p class="qref">Dos 5 bugs gfx1201 rastreados de jun→ago/2026, apenas 1 tem indício de mitigação — e mesmo esse é ambíguo.
+      Reamostrar antes do depósito produz série temporal, evidência mais forte que um retrato único.</p>
+
+      <hr class="rule">
+      <p class="src" style="margin-top:28px">
+        Painel só-leitura. Estado dos checkboxes fica no <code>localStorage</code> deste navegador —
+        use "copiar progresso" para levá-lo ao <code>PLANO.md</code>.
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   DADOS — transcritos à mão de PLANO.md §4 e §5.
+   Editar aqui quando o PLANO.md mudar.
+   ------------------------------------------------------------
+   status por item: "open" | "done" (já feito e registrado no
+   PLANO.md) | "cut" | "warn" (rebaixado) | "info" (substituído)
+   ============================================================ */
+
+const DEPOSITO = new Date(2026, 10, 6);   // 06/nov/2026
+const INICIO   = new Date(2026,  7, 24);  // 24/ago/2026
+
+const SPRINTS = [
+  {
+    id: "s0",
+    nome: "Sprint 0 · Viabilidade",
+    semanas: "semana 1",
+    ini: [2026, 7, 24], fim: [2026, 7, 30],
+    estado: "Parcial",
+    objetivo: "Validar, antes de qualquer escrita, que (a) a rota Vulkan roda, (b) a instrumentação de medição funciona, (c) há clareza sobre o acesso a hardware NVIDIA.",
+    saida: "Rota Vulkan roda ≥ 1 cena; instrumentação validada; decisão go/no-go por pipeline.",
+    alerta: {
+      tipo: "red",
+      titulo: "Semana mais carregada do cronograma.",
+      texto: "A máquina não tem nada instalado e 6/6 gates do inventário reprovaram. <b>Hard-cap:</b> se a rota Vulkan não subir até o fim da semana, acionar os cortes e seguir para o Sprint 1 — a escrita não pode ficar bloqueada pelo bring-up."
+    },
+    itens: [
+      { t: "Decidir hospedagem do repositório git", st: "done", n: "GitHub, <code>fabio-gabriel/tcc</code>, via alias SSH <code>github-personal</code>." },
+      { t: "Inicializar git no repositório", st: "done", n: "Primeiro commit em 2026-06-23; branch <code>main</code> sincronizada com <code>origin</code>." },
+      { t: "Decisão sobre hardware NVIDIA", st: "done", n: "RTX 5070 Ti alugada na vast.ai — concorrente direta de mercado da RX 9070 XT." },
+      { t: "Instalar Python 3.10–3.13 secundário", n: "Não está no PLANO.md como item próprio, mas nada instala sem isso: 3.14.4 é o único interpretador e não há wheels de PyTorch-ROCm nem Taichi para ele." },
+      { t: "Instalar toolchain: gcc/clang, cmake, pip, vulkan-tools, glslc/glslangValidator", n: "Primeiro passo do caminho crítico Vulkan. RADV e <code>libvulkan1</code> já estão presentes." },
+      { t: "Confirmar VK_KHR_cooperative_matrix na RX 9070 XT", n: "Pré-condição do VkSplat. Rodar <code>vulkaninfo</code> depois de instalar <code>vulkan-tools</code>." },
+      { t: "Validar pessoalmente o paper VkSplat (arXiv:2605.00219) e o repositório harry7557558/vksplat", n: "Confirmado real e ativo em 2026-08-06, mas os autores só testaram até RDNA 3 (RX 7800 XT) e o paper está \"submitted\", não aceito em Eurographics 2026. Não citar como aceito." },
+      { t: "Bring-up: rodar VkSplat em uma cena", n: "Caminho crítico. Sustenta a afirmação principal e a secundária. Bring-up na 9070 XT é validação original, não replicação." },
+      { t: "Bring-up: rodar Linyou/taichi-ngp-renderer em uma cena", n: "Caminho crítico. Replica o contraste num segundo pipeline; cobre H1 se o VkSplat não subir." },
+      { t: "Alugar instância vast.ai de teste (5070 Ti)", n: "Registrar CPU, RAM, lanes PCIe e disco do host; validar <code>nvidia-smi --query-gpu=power.draw</code> dentro do container." },
+      { t: "Definir critérios de seleção de instância vast.ai e fixar imagem Docker por digest", n: "PCIe x16 e CPU/RAM adequados — variância de host confunde a comparação de desempenho." },
+      { t: "Validar instrumentação de potência via sysfs/hwmon", st: "info", n: "Substitui a validação por <code>rocm-smi</code>: <code>power1_average</code> já retornou 26 W em idle, valor não-redondo, sem ROCm instalado. Desacopla H3 do bloqueio de SO." },
+      { t: "Caderno de campo: registrar cada bug/quirk em arquivo versionado no repo", n: "Alimenta a dimensão de portabilidade e os achados do Cap. 5. Sem isso, os bugs viram memória." },
+      { t: "Conferir requisitos formais de depósito da UFC", n: "Ficha catalográfica, folha de aprovação, formato de arquivo, canal de entrega. O PLANO.md manda verificar na semana 1, não no Sprint 5." },
+      { t: "Configurar Tailscale entre Mac e máquina Linux", n: "Pausado a pedido em 2026-06-23. Retomar antes do bring-up se for iterar remotamente." },
+      { t: "Decisão go/no-go por pipeline; ajustar escopo", n: "Fecha o sprint. É aqui que os cortes candidatos são acionados ou não." },
+      { t: "Bring-up: 3DGS via PR #1297 (HIP)", st: "cut", n: "Depende de ROCm, bloqueado pelo SO. PR parado há ~8 meses, 1 commit, 0 comentários." },
+      { t: "Bring-up: PyTorch + ROCm 7.x", st: "warn", n: "Rebaixado a tentativa documentada com limite de ~4 h. O resultado, mesmo negativo, é evidência de H4 — não é experimento de desempenho." },
+      { t: "Bring-up: tiny-rocm-nn", st: "cut", n: "Só validado em CDNA 3. Adaptar WMMA para RDNA é um TCC próprio; vai para trabalhos futuros." }
+    ]
+  },
+  {
+    id: "s1",
+    nome: "Sprint 1 · Cap. 2 + leituras-núcleo",
+    semanas: "semanas 2–3",
+    ini: [2026, 7, 31], fim: [2026, 8, 13],
+    estado: "Não iniciado",
+    objetivo: "Produzir o capítulo de fundamentação teórica de renderização neural.",
+    saida: "Sumário ABNT definido; Cap. 2 escrito; Eixo E validado e lido.",
+    alerta: {
+      tipo: "amber",
+      titulo: "Zero de 54 entradas do fichamento foram lidas.",
+      texto: "O campo <code>status_validacao</code> rastreia verificação de <i>metadados</i>, não leitura. E o <b>Eixo E inteiro está <code>incerto</code></b> — metadados levantados de memória, nenhum validado em fonte primária."
+    },
+    itens: [
+      { t: "Fixar pergunta de pesquisa final e hipóteses", n: "Já formuladas em §2. Aqui é confirmar com o Prof. Gilvan e congelar." },
+      { t: "Definir sumário ABNT da monografia" },
+      { t: "Ler o núcleo do Eixo A: A.1 NeRF, A.6 3DGS, A.7 Instant-NGP, A.8 LPIPS + um survey", n: "Corte aplicado: um survey só (A.10 ou A.11, não os dois). O Cap. 2 precisa fundamentar o que é medido, não varrer o campo." },
+      { t: "Ler o Eixo E: portabilidade de desempenho, roofline, metodologia de benchmarking", n: "É a base teórica que o enquadramento anterior não tinha — e o que sustenta \"nunca reportar média nua\". Validar os metadados antes de citar: o eixo todo está <code>incerto</code>." },
+      { t: "Escrever Cap. 2: Renderização Neural", n: "Representações implícitas e explícitas, volume rendering, splatting, métricas PSNR/SSIM/LPIPS." },
+      { t: "Continuar leituras dos Eixos B e C em paralelo" },
+      { t: "Eixo B: cortar B.8–B.11 (Deformable 3DGS, 4DGS, Scaffold-GS, GaussianPro)", st: "cut", n: "Nenhuma entra no experimento. Citar de passagem no Cap. 2 a partir dos surveys." },
+      { t: "Eixo D (datasets): adiar para o Sprint 2", st: "info", n: "Ler dataset que não vai ser usado é custo puro. Ler junto da escolha do dataset." }
+    ]
+  },
+  {
+    id: "s2",
+    nome: "Sprint 2 · Cap. 3 + Cap. 4 + protocolo pré-registrado",
+    semanas: "semanas 4–5",
+    ini: [2026, 8, 14], fim: [2026, 8, 27],
+    estado: "Não iniciado",
+    objetivo: "Escrever a fundamentação de hardware/portabilidade e fechar o protocolo experimental antes de executar.",
+    saida: "Cap. 3 escrito; Cap. 4 escrito e commitado (pré-registro); dataset e métricas fixados.",
+    alerta: {
+      tipo: "blue",
+      titulo: "Cap. 4 foi antecipado para cá (era Sprint 4).",
+      texto: "Não é conveniência de cronograma: o pré-registro exige o protocolo escrito e commitado <b>antes</b> da execução. O capítulo que o descreve nasce aqui, não depois dos resultados."
+    },
+    itens: [
+      { t: "Ler papers do Eixo C: Taichi, ROCm, HIP, Tensor Cores, WMMA, performance portability" },
+      { t: "Escrever Cap. 3: Hardware Heterogêneo e Portabilidade", n: "CUDA × ROCm/HIP × Vulkan × Taichi; Tensor Cores × WMMA; ecossistemas de bibliotecas." },
+      { t: "Selecionar datasets canônicos", n: "Corte: Synthetic-NeRF como principal (leve, canônico, cabe em 124 GB e 15 GiB de RAM). Mip-NeRF 360 entra com 2–3 cenas só se couber. Tanks and Temples cortado." },
+      { t: "Definir a instrumentação por estágio do pipeline", n: "Sem isso H1 não é testável. Decidir entre marcadores no código-fonte, profiler externo (RGP/Nsight), ou ambos." },
+      { t: "Fechar protocolo experimental", n: "Número de rodadas, hardware, versões fixadas (requirements/Dockerfile/SHAs), critérios de PSNR-alvo, intervalo de amostragem de potência, scripts de coleta, critério de descarte de rodada." },
+      { t: "Escrever Cap. 4: Metodologia", n: "Protocolo, datasets, métricas, instrumentação, limitações. Declarar aqui as exclusões — inclusive se H3 ou o tempo-de-bring-up saírem." },
+      { t: "Commitar o Cap. 4 e o protocolo antes de qualquer execução do Sprint 3", n: "É o pré-registro. O commit é seu — é o que dá valor probatório ao histórico do repositório." },
+      { t: "Decidir a estratégia de LaTeX", n: "Esqueleto abntex2 agora e escrita direta em LaTeX (mais seguro), ou manter .md e migrar no Sprint 4." },
+      { t: "Construir tabela cronológica de gap funcional (release CUDA → equivalente acessível)", n: "Entregável próprio do Cap. 3 ou Cap. 5. Técnicas 2020–2026 com datas e gap em meses." },
+      { t: "Construir inventário de paridade de bibliotecas CUDA ↔ ROCm", n: "Corte: reduzir às 5–6 linhas que entram na argumentação de H4. Tabela exaustiva é enchimento." }
+    ]
+  },
+  {
+    id: "s3",
+    nome: "Sprint 3 · Experimento principal",
+    semanas: "semanas 6–8",
+    ini: [2026, 8, 28], fim: [2026, 9, 18],
+    estado: "Não iniciado",
+    objetivo: "Executar o desenho fatorial e coletar os dados brutos.",
+    saida: "Execuções concluídas; dados brutos em CSV/JSON no repositório.",
+    alerta: {
+      tipo: "red",
+      titulo: "Executar primeiro a coluna da 5070 Ti.",
+      texto: "<code>gsplat</code>(CUDA) × VkSplat(Vulkan) × Taichi→CUDA × Taichi→Vulkan, <b>na mesma instância</b>. É a afirmação principal e a única sob controle total. Só depois o lado AMD. Nada de execução antes do Cap. 4 estar commitado."
+    },
+    itens: [
+      { t: "Executar a coluna da 5070 Ti na mesma instância", n: "Afirmação principal. Hardware constante, só o backend varia." },
+      { t: "Rodar as N repetições de um mesmo experimento na mesma instância", n: "Evita confundir variância de host com variância de execução." },
+      { t: "Repetir um subconjunto em uma segunda instância", n: "Serve só para estimar a variância entre hosts — não misturar com as rodadas principais." },
+      { t: "Lado AMD: executar VkSplat e taichi-ngp-renderer nos datasets selecionados", n: "Com rodadas para média e desvio." },
+      { t: "Coletar métricas em CSV/JSON no repo", n: "Tempo, FPS, PSNR, SSIM, LPIPS, potência amostrada, energia integrada — dados brutos, não só a tabela final." },
+      { t: "Documentar cada bug e regressão de correção como achado empírico do Cap. 5" },
+      { t: "Complementar com números da literatura onde a execução pareada não cobrir", n: "Explicitar no texto quais comparações são pareadas e quais são indiretas." },
+      { t: "Snapshot de ambiente por sessão de aluguel", n: "Driver, CUDA, digest da imagem, CPU/RAM/PCIe do host, <code>nvidia-smi -q</code> completo. A instância é efêmera." },
+      { t: "Execução do PR #1297 (HIP)", st: "cut", n: "Consequência do corte no Sprint 0." },
+      { t: "Baseline PyTorch + ROCm como medição de desempenho", st: "cut", n: "Permanece como evidência de H4, não como linha de tabela de performance." },
+      { t: "Eixo cross-vendor completo", st: "warn", n: "Cortável sem perder o TCC se a vast.ai não fechar — é \"exploratório\" na hierarquia de afirmações." },
+      { t: "Mip-NeRF 360", st: "warn", n: "Cortar se 15 GiB de RAM não segurarem <code>bicycle</code>/<code>garden</code> no carregamento e no COLMAP." },
+      { t: "N ≥ 3 rodadas em todas as células", st: "warn", n: "Reduzir N nas células exploratórias e manter N cheio nas células da afirmação principal." }
+    ]
+  },
+  {
+    id: "s4",
+    nome: "Sprint 4 · Cap. 5 + Cap. 6 + revisão",
+    semanas: "semanas 9–10",
+    ini: [2026, 9, 19], fim: [2026, 10, 1],
+    estado: "Não iniciado",
+    objetivo: "Escrever resultados, discussão e conclusão com os dados frescos.",
+    saida: "Cap. 5 e Cap. 6 escritos; Cap. 2–4 revisados à luz dos resultados.",
+    itens: [
+      { t: "Escrever Cap. 5: Resultados e Discussão", n: "Estruturar pela <b>hierarquia de afirmações</b> (principal → secundária → exploratória → bibliográfica), não pelas 4 dimensões de métrica." },
+      { t: "Redigir o veredito de cada hipótese contra seu critério de falsificação", n: "Incluindo as refutadas. Uma hipótese refutada e bem discutida vale mais que uma confirmada sem critério." },
+      { t: "Escrever Cap. 6: Conclusão (síntese, trabalhos futuros)", n: "Antecipado do Sprint 5 para redigir com os resultados frescos." },
+      { t: "Revisar Cap. 2, 3 e 4 à luz dos resultados" },
+      { t: "Migrar para abntex2, se a estratégia escolhida no Sprint 2 foi manter .md", n: "Aqui, não no Sprint 5." },
+      { t: "Dimensão de energia (H3)", st: "warn", n: "Cortável se a instrumentação não fechar — declarar a exclusão no Cap. 4, não silenciosamente." },
+      { t: "Cap. 5 cobrindo as 4 dimensões", st: "warn", n: "Sustentável com 2 dos 4 eixos (principal + bibliográfico). Consequência da hierarquia de afirmações." }
+    ]
+  },
+  {
+    id: "s5",
+    nome: "Sprint 5 · Fechamento",
+    semanas: "semana 11",
+    ini: [2026, 10, 2], fim: [2026, 10, 6],
+    estado: "Não iniciado",
+    objetivo: "Fechar o texto e depositar.",
+    saida: "Monografia completa e formatada em ABNT, depositada em 06/nov.",
+    alerta: {
+      tipo: "red",
+      titulo: "Cinco dias úteis. Não acrescentar tarefa estrutural.",
+      texto: "Cap. 4 foi para o Sprint 2, Cap. 6 para o Sprint 4 e a migração LaTeX saiu daqui justamente para esta semana caber. <b>A preparação da defesa não entra aqui</b> — 06/nov é depósito."
+    },
+    itens: [
+      { t: "Escrever Cap. 1: Introdução (motivação, objetivo, contribuições)" },
+      { t: "Escrever resumo e abstract (PT-BR e EN)" },
+      { t: "Revisão integral", n: "Corte: priorizar Cap. 1, 5 e 6 — o que a banca lê primeiro e com mais atenção. Em 5 dias não há tempo de revisar 6 capítulos com o mesmo cuidado." },
+      { t: "Validar formatação ABNT no modelo abntex2", n: "A migração em si já deve estar feita." },
+      { t: "Registrar em trabalhos futuros os itens cortados", n: "Port de MLP fundido para WMMA/RDNA 4, rota HIP para 3DGS, caracterização por roofline." },
+      { t: "Depósito em 06/nov" }
+    ]
+  }
+];
+
+/* ============================================================
+   ESTADO — localStorage, chave por id estável do texto.
+   Chaves órfãs simplesmente não casam e desaparecem.
+   ============================================================ */
+
+const LS_KEY = "tcc-painel-v1";
+
+function hashId(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return "t" + (h >>> 0).toString(36);
+}
+
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; }
+  catch (e) { return {}; }
+}
+function saveState(st) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify(st)); } catch (e) {}
+}
+
+let STATE = loadState();
+
+/* ============================================================
+   DATAS
+   ============================================================ */
+
+const HOJE = (() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), d.getDate()); })();
+const DIA = 86400000;
+
+const d = a => new Date(a[0], a[1], a[2]);
+const dias = (a, b) => Math.round((b - a) / DIA);
+const fmt = dt => String(dt.getDate()).padStart(2, "0") + "/" +
+  ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][dt.getMonth()];
+
+function sprintAtual() {
+  for (const s of SPRINTS) if (HOJE >= d(s.ini) && HOJE <= d(s.fim)) return s;
+  return null;
+}
+function proximoSprint() {
+  for (const s of SPRINTS) if (d(s.ini) > HOJE) return s;
+  return null;
+}
+
+/* ============================================================
+   RENDER
+   ============================================================ */
+
+const PILL = {
+  cut:  ['cut',  'cortado'],
+  warn: ['warn', 'rebaixado'],
+  info: ['info', 'substituído'],
+  done: ['ok',   'feito']
+};
+
+function itemHTML(it, sid) {
+  const id = hashId(sid + "|" + it.t);
+  const fixo = it.st === "done" || it.st === "cut";
+  const marcado = fixo ? true : !!STATE[id];
+  const cls = ["item"];
+  if (fixo) cls.push("fixed");
+  if (marcado) cls.push("done");
+  const tag = it.st && PILL[it.st]
+    ? ` <span class="pill ${PILL[it.st][0]}">${PILL[it.st][1]}</span>` : "";
+  return `<div class="${cls.join(' ')}" data-id="${id}">
+    <input type="checkbox" ${marcado ? "checked" : ""} ${fixo ? "disabled" : ""} id="cb-${id}">
+    <label for="cb-${id}">${it.t}${tag}${it.n ? `<span class="why">${it.n}</span>` : ""}</label>
+  </div>`;
+}
+
+function todoHTML(s, comFooter) {
+  const lista = s.itens.map(it => itemHTML(it, s.id)).join("");
+  const abertos = s.itens.filter(it => it.st !== "done" && it.st !== "cut").length;
+  const foot = comFooter ? `
+    <div class="todo-foot">
+      <button class="btn" data-export="${s.id}">copiar progresso</button>
+      <span class="counter" data-count="${s.id}"></span>
+      <span class="counter">${abertos} itens no escopo-base</span>
+    </div>` : "";
+  return `<div class="todo" data-sprint="${s.id}">${lista}</div>${foot}`;
+}
+
+function calloutHTML(a) {
+  return `<div class="callout ${a.tipo}"><span class="ci">!</span><div class="cb">
+    <span class="ct">${a.titulo}</span><p>${a.texto}</p></div></div>`;
+}
+
+/* ---- hero ---- */
+function renderHero() {
+  const até = dias(HOJE, DEPOSITO);
+  const sa = sprintAtual();
+  const px = proximoSprint();
+  const antes = HOJE < d(SPRINTS[0].ini);
+
+  let sprintV, sprintSub;
+  if (sa) {
+    sprintV = sa.nome.split(" · ")[0];
+    sprintSub = `${sa.semanas} · até ${fmt(d(sa.fim))} (${dias(HOJE, d(sa.fim))} d)`;
+  } else if (antes) {
+    sprintV = "pré-início";
+    sprintSub = `Sprint 0 começa em ${dias(HOJE, d(SPRINTS[0].ini))} d`;
+  } else if (px) {
+    sprintV = "entre sprints";
+    sprintSub = `próximo: ${px.nome.split(" · ")[0]} em ${dias(HOJE, d(px.ini))} d`;
+  } else {
+    sprintV = "janela encerrada";
+    sprintSub = "depósito era 06/nov/2026";
+  }
+
+  const total = dias(INICIO, DEPOSITO);
+  const decorrido = Math.max(0, Math.min(total, dias(INICIO, HOJE)));
+  const pct = Math.round(decorrido / total * 100);
+
+  document.getElementById("hero").innerHTML = `
+    <div class="stat${até <= 21 ? " alarm" : ""}">
+      <div class="k">até o depósito</div>
+      <div class="v">${até} <small>dias</small></div>
+      <div class="sub">06/nov/2026 · sexta</div>
+    </div>
+    <div class="stat">
+      <div class="k">sprint</div>
+      <div class="v" style="font-size:19px">${sprintV}</div>
+      <div class="sub">${sprintSub}</div>
+    </div>
+    <div class="stat">
+      <div class="k">janela consumida</div>
+      <div class="v">${pct}<small>%</small></div>
+      <div class="sub">${decorrido} de ${total} dias</div>
+    </div>
+    <div class="stat">
+      <div class="k">progresso real</div>
+      <div class="v" style="font-size:19px">0 cap. · 0/54 papers</div>
+      <div class="sub">nenhum pipeline rodou</div>
+    </div>`;
+}
+
+/* ---- sprint atual (seção Agora) ---- */
+function renderSprintAtual() {
+  const sa = sprintAtual();
+  const antes = HOJE < d(SPRINTS[0].ini);
+  const s = sa || (antes ? SPRINTS[0] : proximoSprint()) || SPRINTS[SPRINTS.length - 1];
+  const el = document.getElementById("sprint-atual");
+
+  const cab = antes && !sa
+    ? `<div class="callout amber"><span class="ci">→</span><div class="cb">
+         <span class="ct">A janela começa em ${fmt(d(SPRINTS[0].ini))}.</span>
+         <p>Ainda dá para adiantar o que não depende de bring-up: instalar Python na faixa suportada,
+         o toolchain, e conferir os requisitos formais de depósito da UFC.</p></div></div>`
+    : "";
+
+  el.innerHTML = `${cab}
+    <h2>${s.nome} <span class="src">${s.semanas} · ${fmt(d(s.ini))} → ${fmt(d(s.fim))}</span></h2>
+    <p class="qref">${s.objetivo}</p>
+    ${s.alerta ? calloutHTML(s.alerta) : ""}
+    <p class="sout" style="font-size:13px;color:var(--txt-dim)"><b style="color:var(--txt-mid)">Saída esperada:</b> ${s.saida}</p>
+    ${todoHTML(s, true)}`;
+}
+
+/* ---- todos os sprints ---- */
+function renderSprints() {
+  const sa = sprintAtual();
+  document.getElementById("sprints").innerHTML = SPRINTS.map(s => {
+    const agora = sa && sa.id === s.id;
+    const passou = d(s.fim) < HOJE;
+    const pill = agora ? '<span class="pill info">em curso</span>'
+      : passou ? '<span class="pill block">janela passou</span>'
+      : `<span class="pill open">${s.estado.toLowerCase()}</span>`;
+    return `<details class="sprint${agora ? " now" : ""}" ${agora ? "open" : ""}>
+      <summary>
+        <span class="stitle">${s.nome}</span>
+        <span class="sdates">${fmt(d(s.ini))} → ${fmt(d(s.fim))}</span>
+        ${pill}
+      </summary>
+      <div class="sbody">
+        <p class="sgoal">${s.objetivo}</p>
+        ${s.alerta ? calloutHTML(s.alerta) : ""}
+        <p class="sout"><b>Saída:</b> ${s.saida}</p>
+        ${todoHTML(s, true)}
+      </div>
+    </details>`;
+  }).join("");
+}
+
+/* ---- timeline ---- */
+function renderTimeline() {
+  const t0 = d(SPRINTS[0].ini).getTime();
+  const t1 = DEPOSITO.getTime();
+  const span = t1 - t0;
+  const hojePct = Math.max(0, Math.min(100, (HOJE.getTime() - t0) / span * 100));
+  const sa = sprintAtual();
+
+  document.getElementById("timeline").innerHTML = SPRINTS.map(s => {
+    const a = d(s.ini).getTime(), b = d(s.fim).getTime();
+    const left = (a - t0) / span * 100;
+    const w = Math.max(1.5, (b - a) / span * 100);
+    const cls = sa && sa.id === s.id ? "now" : (b < HOJE.getTime() ? "done" : "");
+    const dentro = HOJE.getTime() >= a && HOJE.getTime() <= b;
+    const marca = dentro
+      ? `<span class="tl-today" style="left:${(HOJE.getTime() - a) / (b - a) * 100}%"></span>` : "";
+    return `<div class="tl-row">
+      <span class="tl-lab">${s.nome.split(" · ")[0]}</span>
+      <span class="tl-bar">
+        <span class="tl-fill ${cls}" style="left:${left}%;width:${w}%">${marca}</span>
+      </span>
+      <span class="tl-days">${dias(d(s.ini), d(s.fim)) + 1} d</span>
+    </div>`;
+  }).join("");
+}
+
+/* ---- contadores ---- */
+function atualizaContadores() {
+  document.querySelectorAll("[data-count]").forEach(el => {
+    const sid = el.getAttribute("data-count");
+    const s = SPRINTS.find(x => x.id === sid);
+    const base = s.itens.filter(it => it.st !== "done" && it.st !== "cut");
+    const feitos = base.filter(it => STATE[hashId(sid + "|" + it.t)]).length;
+    el.innerHTML = `<b>${feitos}</b> / ${base.length} marcados`;
+  });
+}
+
+/* ---- export ---- */
+function exportar(sid) {
+  const s = SPRINTS.find(x => x.id === sid);
+  const linhas = s.itens
+    .filter(it => it.st !== "cut")
+    .map(it => {
+      const feito = it.st === "done" || !!STATE[hashId(sid + "|" + it.t)];
+      return `- [${feito ? "x" : " "}] ${it.t}`;
+    });
+  const hoje = new Date().toISOString().slice(0, 10);
+  const txt = `<!-- progresso exportado do painel em ${hoje} · conferir contra PLANO.md §5 -->\n`
+    + `### ${s.nome}\n\n${linhas.join("\n")}\n`;
+  const done = () => toast("Progresso copiado — cole no PLANO.md §5 ou numa sessão do Claude");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done, () => fallback(txt, done));
+  } else fallback(txt, done);
+}
+function fallback(txt, cb) {
+  const ta = document.createElement("textarea");
+  ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); cb(); }
+  catch (e) { toast("Não consegui copiar — abra o console"); console.log(txt); }
+  ta.remove();
+}
+
+let toastT;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove("show"), 2600);
+}
+
+/* ---- eventos ---- */
+document.addEventListener("change", e => {
+  const cb = e.target;
+  if (cb.type !== "checkbox" || cb.disabled) return;
+  const item = cb.closest(".item");
+  if (!item) return;
+  const id = item.getAttribute("data-id");
+  if (cb.checked) STATE[id] = 1; else delete STATE[id];
+  saveState(STATE);
+  // reflete em todas as instâncias do mesmo item (Agora + Cronograma)
+  document.querySelectorAll(`.item[data-id="${id}"]`).forEach(n => {
+    n.classList.toggle("done", cb.checked);
+    const i = n.querySelector("input");
+    if (i !== cb) i.checked = cb.checked;
+  });
+  atualizaContadores();
+});
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-export]");
+  if (b) exportar(b.getAttribute("data-export"));
+});
+
+/* ---- nav ativa ---- */
+function navAtiva() {
+  const secs = [...document.querySelectorAll("main section")];
+  let atual = secs[0].id;
+  for (const s of secs) if (s.getBoundingClientRect().top <= 110) atual = s.id;
+  document.querySelectorAll("nav.side a.navitem").forEach(a =>
+    a.classList.toggle("active", a.getAttribute("href") === "#" + atual));
+}
+
+/* ---- init ---- */
+renderHero();
+renderSprintAtual();
+renderTimeline();
+renderSprints();
+atualizaContadores();
+navAtiva();
+window.addEventListener("scroll", navAtiva, { passive: true });
+</script>
+</body>
+</html>

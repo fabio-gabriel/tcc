@@ -2,14 +2,25 @@
 
 > Este arquivo é a **fonte de verdade versionada** para os fatos de viabilidade do experimento (suporte de stack, status de repositórios/PRs de terceiros, bugs upstream). Substitui a memória persistente `reference_experimento_rdna4.md`, perdida num reinstall do Claude Code em 2026-08-06. Ao contrário da memória do Claude, este arquivo sobrevive a qualquer reinstall porque está no git. A memória do Claude passa a guardar apenas um ponteiro curto para este arquivo — não os fatos em si.
 >
-> Cada item tem duas rodadas de verificação: a original (2026-06-23, registrada em PLANO.md/fichamento.md) e a reconfirmação em fontes primárias (2026-08-06). Quando o estado mudou entre as duas datas, isso está marcado explicitamente.
+> Cada item tem duas rodadas de verificação: a original (2026-06-23, registrada em PLANO.md/fichamento.md) e a reconfirmação em fontes primárias (2026-08-06). Quando o estado mudou entre as duas datas, isso está marcado explicitamente. O item 1 recebeu uma **terceira rodada em 2026-08-25**, que corrigiu um erro das duas anteriores.
 
 ## 1. Suporte oficial ROCm a RDNA 4 / RX 9070 XT
 
-- **Veredito:** confirmado, com versão atualizada.
-- **Fonte:** rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html (acesso 2026-08-06)
-- RX 9070 XT, RX 9070 GRE, RX 9070 (gfx1201) e RX 9060 XT LP, RX 9060 XT, RX 9060 (gfx1200) continuam listados como "✅ Supported", restritos a Ubuntu 24.04.4 / 22.04.5, RHEL 10.1 / 9.7.
-- **Mudou:** produção avançou de ROCm 7.2.4 (jun/2026) para **ROCm 7.14.0** (ago/2026), com ROCm 7.13.0 como "technology preview" em paralelo — evolução rápida da linha de produção em ~1,5 mês.
+- **Veredito:** suporte confirmado. **A restrição de sistema operacional registrada nas rodadas de 2026-06-23 e 2026-08-06 estava errada e foi corrigida em 2026-08-25.**
+- **Fonte vigente:** `rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html` — "ROCm 7.14.0 compatibility matrix", página datada de **2026-07-16** (acesso 2026-08-25). Possui seletor por GPU/arquitetura/SO; consultada com `gpu=rx-9070-gre&gfx=gfx1201&os=ubuntu`.
+- RX 9070 XT, RX 9070 GRE, RX 9070 (gfx1201) e RX 9060 XT LP, RX 9060 XT, RX 9060 (gfx1200) permanecem listados como "✅ Supported".
+- **Sistemas operacionais suportados (Ubuntu), literal da tabela Radeon:** `Ubuntu 26.04 (GA kernel: 7.0)`, `Ubuntu 24.04.4 (GA kernel: 6.8)`, `Ubuntu 22.04.5 (GA kernel: 5.15)`. Há uma única linha `Supported Ubuntu versions` em toda a tabela Radeon; não há nota de rodapé nem linha alternativa restringindo Radeon de consumo a um subconjunto.
+- **Driver:** a tabela Radeon lista `Supported AMD GPU Driver (amdgpu) versions` de 30.10.0 a 31.40.1 e **não** contém a linha `Supported kernel driver version: Inbox kernel driver…` que aparece na tabela de APUs Ryzen. Implicação a verificar em bring-up: para Ubuntu 24.04.4 com kernel GA 6.8 (anterior ao Navi 48), o suporte pressupõe o driver empacotado da AMD, não o `amdgpu` in-kernel.
+- **Mudou entre 2026-06-23 e 2026-08-06:** produção avançou de ROCm 7.2.4 (jun/2026) para **ROCm 7.14.0** (ago/2026), com ROCm 7.13.0 como "technology preview" em paralelo — evolução rápida da linha de produção em ~1,5 mês.
+
+### 1.1 Erro corrigido em 2026-08-25 — e o que dele é aproveitável
+
+- **Afirmação errada, repetida em duas rodadas:** "gfx1201 é suportado apenas em Ubuntu 24.04.4 / 22.04.5 e RHEL 10.1 / 9.7". Ubuntu 26.04 **é** suportado.
+- **Origem do erro:** a fonte usada em 2026-08-06 foi `rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html`, página datada de **2026-07-15**, cuja nota de rodapé [7] traz a lista restrita. Essa página exibe, no topo, o aviso: *"**Important** — This page has moved! Go to `https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html` for the latest compatibility information."* O aviso não foi seguido.
+- **Consequência prática:** em 2026-08-25 a máquina de bancada foi reinstalada de Ubuntu 26.04 para Ubuntu 24.04.4 com base nessa afirmação falsa. A reinstalação não era necessária. O 24.04.4 também é suportado, então a configuração resultante é válida (ver `PLANO.md` §7).
+- **O que é dado utilizável, enunciado com precisão:** duas páginas da documentação oficial da AMD, publicadas em **15 e 16 de julho de 2026**, afirmam matrizes de sistema operacional **diferentes para a mesma GPU**, e a versão obsoleta permanece publicada, acessível e indexada, sob a URL que a própria AMD usava anteriormente como canônica. Isso é observação verificável sobre a qualidade e a navegabilidade da documentação do ecossistema ROCm, com URLs e datas, e pode ser citado no eixo "suporte declarado × suporte efetivo".
+- **O que NÃO é dado:** "Ubuntu 26.04 não é suportado pelo ROCm". Essa afirmação é falsa e não pode aparecer em nenhum capítulo.
+- **Ressalva de método sobre a leitura da fonte:** a tabela Radeon da matriz usa `colspan`, e a conversão para texto não preserva de forma inequívoca o mapeamento coluna→família. A atribuição de `Ubuntu 26.04` à família `AMD Radeon RX 9000 Series` apoia-se em (a) existir uma única linha de SO em toda a tabela Radeon e (b) a página ter sido consultada pelo seletor interativo já filtrado em gfx1201. Se essa linha for usada como afirmação central em algum capítulo, reconferir no HTML original e registrar captura datada.
 
 ## 2. PR `graphdeco-inria/gaussian-splatting#1297` (Port to HIP / AMDGPU)
 

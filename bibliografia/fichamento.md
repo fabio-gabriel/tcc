@@ -399,11 +399,12 @@ Este é o **fichamento bibliográfico vivo** do TCC. Cada entrada contém:
 
 ### C.11 — AMD (2025) — ROCm Documentation [validado_doc_oficial]
 - **Autor:** Advanced Micro Devices, Inc.
-- **Título:** ROCm Documentation — System Requirements / Supported GPUs
-- **Venue:** Documentação oficial ROCm 7.14.0 (production, reconfirmado 2026-08-06; era 7.2.4 em 2026-06-23); 7.13.0 (technology preview)
-- **URL:** [rocm.docs.amd.com/projects/install-on-linux/.../system-requirements.html](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html)
-- **Ideia-chave:** Matriz oficial de GPUs suportadas. RDNA 4 (gfx1200/gfx1201, **incluindo RX 9070 XT**, 9070, 9060 XT, 9060 e variantes Radeon AI PRO) permanece na lista de "Supported", restritos a Ubuntu 22.04.5 / 24.04.4 e RHEL 9.7 / 10.1. CDNA 4 (gfx950, MI355X/MI350X) também listado.
+- **Título:** ROCm 7.14.0 compatibility matrix
+- **Venue:** Documentação oficial ROCm 7.14.0 (production, reconfirmado 2026-08-06; era 7.2.4 em 2026-06-23); 7.13.0 (technology preview). Página datada de 2026-07-16
+- **URL:** [rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html](https://rocm.docs.amd.com/en/latest/compatibility/compatibility-matrix.html)
+- **Ideia-chave:** Matriz oficial de GPUs suportadas. RDNA 4 (gfx1200/gfx1201, **incluindo RX 9070 XT**, 9070, 9060 XT, 9060 e variantes Radeon AI PRO) permanece na lista de "Supported". SOs listados para a tabela Radeon: `Ubuntu 26.04 (GA kernel: 7.0)`, `Ubuntu 24.04.4 (GA kernel: 6.8)`, `Ubuntu 22.04.5 (GA kernel: 5.15)`, além de RHEL. CDNA 4 (gfx950, MI355X/MI350X) também listado.
 - **Relevância TCC:** **FONTE PRIMÁRIA INDISPENSÁVEL** — confirma que a RX 9070 XT É oficialmente suportada por ROCm 7.x, contrariando o histórico de exclusão de Radeon de consumo. A linha de produção avançou rapidamente (7.2.4 → 7.14.0 em ~1,5 mês) — documentar a versão exata usada no experimento, dado o ritmo de mudança. Ver `bibliografia/verificacao-experimento-rdna4.md` (item 1).
+- **⚠ CORREÇÃO 2026-08-25:** até esta data, esta entrada citava a URL `install-on-linux/en/latest/reference/system-requirements.html` e afirmava que o suporte era "restrito a Ubuntu 22.04.5 / 24.04.4 e RHEL 9.7 / 10.1". **A afirmação é falsa e a URL é obsoleta** — aquela página, datada de 2026-07-15, exibe o aviso *"This page has moved!"* apontando para a matriz de compatibilidade. Ubuntu 26.04 consta como suportado para gfx1201. Não reutilizar a redação antiga. A divergência entre as duas páginas está documentada em `verificacao-experimento-rdna4.md` §1.1 e é, ela sim, citável como observação sobre a documentação do ecossistema.
 - **Onde citar:** Cap. 2 (estado da arte); Cap. 4 (setup experimental).
 
 ### C.12 — AMD (2025) — HIP Programming Model [validado_doc_oficial]

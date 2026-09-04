@@ -125,7 +125,9 @@ Contrastes derivados:
 | Baseline genérico de treino | PyTorch + ROCm 7.x + Nerfstudio/Nerfacto | ROCm | **Rebaixar.** Vira *tentativa de instalação documentada* — evidência de H4, não experimento de desempenho |
 | Talvez? | `ZJLi2013/tiny-rocm-nn` (renomeado/transferido de `PhysicalAI-AIM/tiny-rocm-nn`, confirmado 2026-08-06; CDNA 3/MI300X → adaptar WMMA RDNA) | HIP/WMMA | **Corte candidato.** Escopo de trabalhos futuros |
 
-> **Nota sobre o papel do ROCm no enquadramento reformulado.** ROCm deixa de ser rota experimental obrigatória e passa a ser **objeto de análise documental** (H4): matriz de suporte, os 5 bugs gfx1201 rastreados, descompasso PyTorch 7.2 ↔ ROCm 7.14, restrição de SO. Esse material já está verificado em `bibliografia/verificacao-experimento-rdna4.md` e sustenta H4 **sem depender de nenhuma instalação bem-sucedida**. Uma instalação que falhe é dado, não fracasso.
+> **Nota sobre o papel do ROCm no enquadramento reformulado.** ROCm deixa de ser rota experimental obrigatória e passa a ser **objeto de análise documental** (H4): matriz de suporte, os 5 bugs gfx1201 rastreados, descompasso PyTorch 7.2 ↔ ROCm 7.14. Esse material já está verificado em `bibliografia/verificacao-experimento-rdna4.md` e sustenta H4 **sem depender de nenhuma instalação bem-sucedida**. Uma instalação que falhe é dado, não fracasso.
+>
+> **Correção (2026-08-25):** este parágrafo listava "restrição de SO" entre as evidências de H4, com base na afirmação — **falsa** — de que Ubuntu 26.04 estaria fora da matriz do ROCm. O item foi removido. A matriz do ROCm 7.14.0 lista 26.04, 24.04.4 e 22.04.5 para gfx1201. O que sobra de citável no lugar não é a estreiteza da matriz, e sim a **divergência entre duas páginas oficiais da AMD publicadas em 15 e 16/jul/2026**, com a versão obsoleta ainda no ar (ver `verificacao-experimento-rdna4.md` §1.1). Enunciar assim, e não como "SO não suportado".
 
 
 ### Métricas, operacionalizadas em 4 dimensões
@@ -209,7 +211,7 @@ Esses bugs são parte do achado empírico do TCC (Cap. 5, discussão de portabil
 
 Objetivo: validar antes de qualquer escrita que (a) a rota Vulkan roda, (b) a instrumentação de medição (potência, tempo, métricas de qualidade) funciona, (c) há clareza sobre o acesso a hardware NVIDIA.
 
-> **Semana 1 é a mais carregada do cronograma** — a máquina não tem nada instalado (sem ROCm, PyTorch, Taichi, pip, gcc, cmake, glslc; Python 3.14.4 fora das faixas suportadas; 6/6 gates reprovados no inventário de 18/ago). Hard-cap sugerido: se a rota Vulkan não subir até o fim da semana, acionar os cortes e seguir para o Sprint 1 — a escrita não pode ficar bloqueada pelo bring-up.
+> **Semana 1 é a mais carregada do cronograma** — a máquina não tem nada instalado (sem ROCm, PyTorch, Taichi, pip, gcc, cmake, glslc; 6/6 gates reprovados no inventário de 25/ago, com a ressalva de leitura registrada em §9). Hard-cap sugerido: se a rota Vulkan não subir até o fim da semana, acionar os cortes e seguir para o Sprint 1 — a escrita não pode ficar bloqueada pelo bring-up.
 
 - [x] Decidir hospedagem do repositório git — **GitHub** (`fabio-gabriel/tcc`, via alias SSH `github-personal`)
 - [x] Inicializar `git init` no repositório — feito; primeiro commit em 2026-06-23, 4 commits em `main`, sincronizado com `origin`
@@ -365,7 +367,9 @@ Objetivo: produzir o capítulo de fundamentação teórica de renderização neu
 
 - [x] ~~**BLOQUEANTE: acesso a hardware NVIDIA contemporâneo**~~ **RESOLVIDO em 2026-08-06:** RTX 5070 Ti alugada na vast.ai; disponibilidade no catálogo confirmada pelo aluno em 2026-08-06. Pendências derivadas (ver §8): (a) validar que `nvidia-smi --query-gpu=power.draw` funciona no container alugado; (b) definir critérios de seleção de instância (PCIe x16, CPU/RAM adequados) para não confundir H1; (c) decidir como tratar a métrica "tempo até bring-up" dada a imagem Docker pré-construída
 - [x] ~~Hospedagem do repositório git: GitHub privado / GitLab UFC / só local~~ **RESOLVIDO** (constatado em 2026-08-20): GitHub, remote `origin` = `github-personal:fabio-gabriel/tcc.git`, branch `main` sincronizada. A decisão já havia sido tomada na prática sem ser registrada aqui
-- [ ] **(2026-08-20) Decidir sobre o SO:** reinstalar/dual-boot Ubuntu 24.04 LTS (traz ROCm de volta como rota executável) ou permanecer no 26.04 (ROCm fica só como objeto documental de H4). Ver §8
+- [x] ~~**(2026-08-20) Decidir sobre o SO:** reinstalar/dual-boot Ubuntu 24.04 LTS (traz ROCm de volta como rota executável) ou permanecer no 26.04 (ROCm fica só como objeto documental de H4)~~ **RESOLVIDO em 2026-08-25 — com ressalva importante.** A máquina foi reinstalada com **Ubuntu 24.04.4 LTS**, kernel `7.0.0-30-generic` (HWE). **A premissa que motivou a reinstalação estava errada:** o 26.04 nunca esteve fora da matriz do ROCm (ver §8 e `verificacao-experimento-rdna4.md` §1.1). Como 24.04.4 também é suportado, a configuração atual é válida e a decisão é **não reverter** — um segundo reformat custaria mais um dia da janela de 10 semanas e 5 dias em troca de um delta marginal de Mesa, e o ecossistema de terceiros (wheels PyTorch+ROCm, dependências pré-compiladas) é testado majoritariamente em 24.04. Duas consequências a carregar:
+  - **Desvio de kernel a declarar no Cap. 4:** a matriz nomeia, para 24.04.4, `GA kernel: 6.8`. A máquina roda HWE `7.0.0-30`. Nenhuma das combinações literais da matriz (26.04+7.0, ou 24.04.4+6.8+driver AMD) descreve exatamente o estado atual. O `amdgpu` in-kernel do 7.0 enxerga o Navi 48; o 6.8 é anterior ao Navi 48. Instalar ROCm **sem DKMS**, aproveitando o driver in-kernel, e registrar o desvio.
+  - **Perda menor:** Mesa 25.2.8 e loader Vulkan 1.3.275 no 24.04.4, contra 26.0.3 e 1.4.341 no 26.04 — pior justamente para o caminho crítico. Reavaliar **apenas** se `vulkaninfo` mostrar ausência de `VK_KHR_cooperative_matrix`; nesse caso, PPA de Mesa antes de cogitar reinstalação.
 - [ ] Datasets finais: Synthetic-NeRF + Mip-NeRF 360 + Tanks and Temples? Outro?
 - [ ] Energia: confirmar instrumentação no Sprint 0. O `rocm-smi --showpower` reporta corretamente em RDNA 4? Caso contrário, plano B (medidor externo de tomada para potência total da workstation, ou outro método)
 - [x] Validação bibliográfica do paper/repo VkSplat (arXiv:2605.00219) — confirmado real e ativo em 2026-08-06 (ver `bibliografia/verificacao-experimento-rdna4.md`); **pendente:** bring-up prático na RX 9070 XT, já que os autores só testaram até RDNA 3 (RX 7800 XT) e o paper ainda está "submitted" (não aceito) em Eurographics 2026
@@ -389,9 +393,11 @@ Objetivo: produzir o capítulo de fundamentação teórica de renderização neu
 | Mudanças de versão ROCm/PyTorch durante o experimento | Resultados não-reprodutíveis | Fixar versões com `requirements.txt` / Dockerfile; registrar SHA |
 | Bibliografia "estava na cabeça" e ainda precisa ser fichada | Atraso no Cap. 2 | Fichamento em `bibliografia/fichamento.md` (~50 entradas). O aluno deve ler os papers prioritários listados ao final do fichamento |
 | Comparativos cross-paper entre CUDA e ROCm são frágeis | Conclusões da H1 ficam fracas se não houver execução pareada | **Mitigado em 2026-08-06:** o aluguel da 5070 Ti na vast.ai permite execução pareada (mesmos datasets, protocolo e instrumentação nos dois lados). Onde ainda houver comparação indireta com literatura, marcar explicitamente como tal. **Mitigado estruturalmente em 2026-08-20:** a afirmação principal deixou de depender do eixo cross-vendor (ver hierarquia em §2) |
-| **(2026-08-20) Ubuntu 26.04 está fora da matriz de suporte do ROCm**, que exige 24.04.4/22.04.5 ou RHEL 10.1/9.7. A máquina roda o LTS corrente, mais novo que o suportado | Rota ROCm/HIP não instala sem forçar codename ou reinstalar o SO. Kernel 7.0.0-29 e Mesa 26.0.3 também são mais novos que tudo que a bibliografia validou | Reenquadramento já removeu ROCm do caminho crítico. Decidir conscientemente (ver §7): dual-boot 24.04 traz a rota de volta; permanecer no 26.04 mantém ROCm como objeto documental de H4. **A própria situação é evidência de H4** — LTS corrente fora da matriz de suporte é exatamente "suporte declarado ≠ suporte efetivo" |
+| ~~**(2026-08-20) Ubuntu 26.04 está fora da matriz de suporte do ROCm**~~ **RETIRADO em 2026-08-25 — A AFIRMAÇÃO ERA FALSA.** A matriz do ROCm 7.14.0 (2026-07-16) lista, para gfx1201: `Ubuntu 26.04 (GA kernel: 7.0)`, `Ubuntu 24.04.4 (GA kernel: 6.8)`, `Ubuntu 22.04.5 (GA kernel: 5.15)` | O risco não existia. Pior: ele foi registrado aqui **como evidência de H4**, e com base nele a máquina foi reinstalada em 2026-08-25 sem necessidade. Um achado fabricado esteve a caminho do Cap. 5 | Origem do erro: consulta a página obsoleta (`install-on-linux/.../system-requirements.html`, 2026-07-15) que ostenta o aviso *"This page has moved!"*. **Regra de método adotada:** nenhuma afirmação sobre suporte entra em capítulo sem checar se a página foi superseded, e nenhuma inconveniência de ambiente vira "evidência" antes da verificação. Detalhe em `verificacao-experimento-rdna4.md` §1.1 |
+| **(2026-08-25) Viés de confirmação já se materializou uma vez neste projeto** — uma inconveniência de ambiente foi convertida em "evidência de imaturidade do stack" sem verificação da fonte vigente (linha acima) | O §2 identifica esse viés como ameaça; ele deixou de ser hipotético. Se ocorreu com um fato verificável em 10 minutos, pode ocorrer com afirmações mais difíceis de checar | Todo achado que **favoreça** a tese passa por verificação em fonte primária vigente antes de entrar no texto, com data de acesso registrada. Achados que favorecem a tese recebem escrutínio maior, não menor |
+| **(2026-08-25) Configuração atual não corresponde literalmente a nenhuma linha da matriz:** Ubuntu 24.04.4 (matriz nomeia `GA kernel: 6.8`) rodando kernel HWE `7.0.0-30` | Se ROCm falhar, a atribuição da falha fica ambígua entre "bug em gfx1201" e "kernel fora do nomeado" — exatamente o tipo de confusão que invalida achado de portabilidade | Instalar ROCm **sem DKMS** (o `amdgpu` in-kernel do 7.0 já suporta Navi 48; o 6.8 não suportaria). Declarar o desvio no Cap. 4. Se surgir falha atribuível ao kernel, testar antes de reportá-la como bug de plataforma |
 | **(2026-08-20) 15 GiB de RAM de sistema** na máquina de bancada | Cenas grandes de 3DGS (Mip-NeRF 360: `bicycle`, `garden`) e o pré-processamento COLMAP podem não caber | Synthetic-NeRF como dataset principal (leve, canônico). Mip-NeRF 360 entra só se couber, e como corte candidato declarado no Sprint 3 |
-| **(2026-08-20) Python 3.14.4 é o único interpretador instalado**, sem 3.10–3.13 | Wheels de PyTorch-ROCm e Taichi não cobrem 3.14; nada instala como está | Instalar Python secundário na faixa suportada antes de qualquer bring-up. Custo baixo, mas precisa estar no caminho crítico do Sprint 0 |
+| ~~**(2026-08-20) Python 3.14.4 é o único interpretador instalado**, sem 3.10–3.13~~ **RESOLVIDO em 2026-08-25 como efeito colateral da reinstalação:** o Ubuntu 24.04.4 traz **Python 3.12.3**, dentro da faixa suportada pelo ROCm 7.14.0 (`3.14, 3.13, 3.12, 3.11`) | Risco eliminado | Falta apenas `python3-pip`/`python3-venv`, ausentes na instalação limpa |
 | **(2026-08-20) rocWMMA (C.14) é o "trunfo central" do fichamento e não passou pela reconfirmação de 2026-08-06** | A afirmação mais forte do TCC repousa numa leitura de README de junho, com versão de referência defasada (ROCm 7.2.4 vs 7.14.0) | Reverificar antes de qualquer uso argumentativo. No enquadramento reformulado o peso dessa afirmação cai — ela sustenta H4, não a afirmação principal |
 
 ### Ressalvas diferidas para o momento da execução (registrado em 2026-08-06)
@@ -410,7 +416,7 @@ As duas ressalvas metodológicas abaixo são **decisões diferidas**, não pend�
 - A janela de execução foi **recalculada em 2026-08-20** para 24/ago → 06/nov/2026 (**10 semanas e 5 dias**), substituindo o cronograma original de 17 semanas que tinha início em 23/jun e término estimado em 23/nov. O plano original acumulou atraso; esta janela é a reprogramação, e o aluno está trabalhando para compensar
 - **`06/nov` é a data de depósito**, não de defesa (confirmado pelo aluno em 2026-08-20). A defesa e eventuais correções são posteriores e ficam fora da janela
 - **Nenhum sprint concluído.** O Sprint 0 está parcial: os itens de git e o inventário de ambiente estão feitos, o bring-up não começou
-- **Zero papers lidos** das 54 entradas do fichamento; **zero capítulos escritos**; **zero execuções** de pipeline
+- **Zero papers lidos** das 62 entradas do fichamento (60 referências distintas; D.1 e D.3 são remissões); **zero capítulos escritos**; **zero execuções** de pipeline
 - Efeito prático da compressão: os cortes candidatos anotados em §5 devem ser tratados como escopo-base. Ver §4, "Consequências da compressão"
 
 **Repositório**
@@ -422,21 +428,21 @@ As duas ressalvas metodológicas abaixo são **decisões diferidas**, não pend�
 **Material produzido**
 
 - `PLANO.md` (este arquivo) e `CLAUDE.md`
-- `bibliografia/fichamento.md`: **54 entradas em 5 eixos (A–E)**. Nenhuma marcada como lida — o campo `status_validacao` rastreia verificação de *metadados*, não leitura. O **Eixo E inteiro está `incerto`** (criado em 2026-08-20, metadados não validados)
-- `bibliografia/verificacao-experimento-rdna4.md`: verificação de viabilidade concluída em 2026-06-23 e reconfirmada em fontes primárias em 2026-08-06
-- `experimentos/00-inventario/`: script `inventario-ambiente.sh` + saída `inventario-fabio-computer-20260818T212900Z.md` (2026-08-18)
+- `bibliografia/fichamento.md`: **62 entradas em 5 eixos (A–E)** — A.1–A.14, B.1–B.14, C.1–C.22, D.1–D.6, E.1–E.6 — das quais D.1 e D.3 são remissões, logo **60 referências distintas**. Contagem corrigida em 2026-08-25; o documento afirmava 54, número que não corresponde a nenhuma contagem defensável do arquivo. Nenhuma marcada como lida — o campo `status_validacao` rastreia verificação de *metadados*, não leitura. O **Eixo E inteiro está `incerto`** (criado em 2026-08-20, metadados não validados)
+- `bibliografia/verificacao-experimento-rdna4.md`: verificação de viabilidade concluída em 2026-06-23, reconfirmada em fontes primárias em 2026-08-06 e **corrigida em 2026-08-25** (§1.1: a restrição de SO registrada nas duas primeiras rodadas estava errada)
+- `experimentos/00-inventario/`: script `inventario-ambiente.sh` + duas saídas datadas — `inventario-fabio-computer-20260818T212900Z.md` (Ubuntu 26.04) e `inventario-fabio-desktop-20260825T222551Z.md` (Ubuntu 24.04.4). São dois estados de ambiente, não um substituindo o outro
 - Material de partida: 3 PDFs exploratórios na raiz (números a tratar com cautela)
 - **Não há** capítulos da monografia escritos, nem código de experimento
 
-**Ambiente de execução (inventário de 2026-08-18) — nenhum pipeline rodou ainda**
+**Ambiente de execução (inventário de 2026-08-25) — nenhum pipeline rodou ainda**
 
-- GPU detectada em PCI (`Navi 48 [1002:7550]`) com `amdgpu` in-kernel ativo e `/dev/kfd` criado — mas o inventário **não desambigua** se a placa é a XT (a string do `pci.ids` cobre 9070 / 9070 XT / 9070 GRE)
+- **Ubuntu 24.04.4 LTS** (mídia `20260210`), kernel `7.0.0-30-generic` (HWE), Python 3.12.3, 15 GiB de RAM, 122 GB livres. Reinstalado em 2026-08-25; ver §7 quanto ao desvio de kernel e à premissa errada que motivou a troca
+- GPU detectada em PCI (`Device [1002:7550]`) com `amdgpu` in-kernel ativo, sem DKMS, e `/dev/kfd` + `/dev/dri/renderD128` criados — mas o inventário **não desambigua** se a placa é a XT (o ID cobre 9070 / 9070 XT / 9070 GRE). No 24.04.4 o `pci.ids` sequer resolve o nome comercial, que aparecia como `Navi 48` no 26.04
 - **Nada instalado:** sem ROCm, PyTorch, Taichi, pip, gcc/clang, cmake, hipcc, glslc, COLMAP, docker
-- Ubuntu 26.04 (fora da matriz ROCm), kernel 7.0.0-29, Python 3.14.4 como único interpretador, 15 GiB de RAM, 124 GB livres
-- Usuário fora dos grupos `render`/`video` (embora os nós de dispositivo exibam ACL POSIX, o que pode conceder acesso por outra via — não testado)
-- Vulkan parcialmente pronto: RADV + `libvulkan1` instalados, faltando `vulkan-tools` e compiladores de shader
-- **6 de 6 gates reprovados** pelo próprio script — com uma ressalva: o gate de potência (H3) é atendível via `sysfs`/hwmon, que funcionou; a tabela só avaliou a via `rocm-smi` (ver §3)
-- Nenhum indício de execução prévia: sem datasets, sem checkpoints, `$HOME` com 420 MB
+- Usuário fora dos grupos `render`/`video`. **Mudou em relação ao 26.04:** `/dev/kfd` agora **não** tem ACL POSIX (`crw-rw----`), então a inclusão no grupo `render` passou a ser obrigatória para ROCm. `card1` e `renderD128` mantêm ACL, então Vulkan funciona sem alteração de grupo
+- Vulkan parcialmente pronto: RADV (Mesa 25.2.8) + `libvulkan1` 1.3.275 instalados, faltando `vulkan-tools` e compiladores de shader. No 26.04 eram Mesa 26.0.3 e loader 1.4.341
+- **6 de 6 gates reprovados** pelo próprio script — mas a tabela de gates **não distingue "NÃO" de "indeterminado por ferramenta ausente"** e por isso afirma coisas falsas. Leitura correta: o único NÃO verdadeiro é `render`/`video`; o gate de potência (H3) está **atendido** via `sysfs`/hwmon (`power1_average` = 9,0 W); os demais são indeterminados. Corrigir a lógica do resumo do script antes que essa tabela chegue ao Cap. 4
+- Nenhum indício de execução prévia: sem datasets, sem checkpoints, `$HOME` com 893 MB
 
 **Outros**
 
@@ -447,7 +453,7 @@ As duas ressalvas metodológicas abaixo são **decisões diferidas**, não pend�
 
 - `CLAUDE.md`: papel do assistente, convenções, escopo confirmado, resumo do enquadramento científico
 - `PLANO.md`: este arquivo — **fonte de verdade do enquadramento científico (§2)**, cronograma, sprints e decisões
-- `bibliografia/fichamento.md`: fichamento do estado da arte, 54 entradas em 5 eixos (em construção)
+- `bibliografia/fichamento.md`: fichamento do estado da arte, 62 entradas em 5 eixos (60 referências distintas) (em construção)
 - `bibliografia/verificacao-experimento-rdna4.md`: log de verificação de viabilidade do experimento (fonte de verdade sobre suporte ROCm, status de PRs/repos de terceiros e bugs upstream, versionado)
 - `experimentos/00-inventario/`: script de inventário de ambiente e suas saídas datadas
 - 3 PDFs iniciais na raiz (material exploratório, não usar como fonte direta sem validar)

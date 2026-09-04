@@ -58,7 +58,7 @@ A tese central herdada do material preliminar — contraste entre o monopólio d
 | Caminho | Conteúdo |
 |---|---|
 | `PLANO.md` | Enquadramento científico (§2, fonte de verdade), cronograma, sprints, decisões, riscos, estado atual |
-| `bibliografia/fichamento.md` | 54 entradas em 5 eixos (A–E). **Nenhuma lida ainda** — o status rastreia validação de metadados, não leitura. Eixo E inteiro é `incerto` |
+| `bibliografia/fichamento.md` | 62 entradas em 5 eixos (A–E), 60 referências distintas (D.1 e D.3 são remissões). **Nenhuma lida ainda** — o status rastreia validação de metadados, não leitura. Eixo E inteiro é `incerto` |
 | `bibliografia/verificacao-experimento-rdna4.md` | Verificação de viabilidade em fontes primárias (2026-06-23, reconfirmada em 2026-08-06). **Fonte de verdade** para suporte ROCm, status de PRs/repos de terceiros e bugs upstream |
 | `experimentos/00-inventario/` | Script de inventário de ambiente + saída de 2026-08-18. **Nenhum pipeline rodou ainda**; 6/6 gates reprovados |
 
@@ -83,8 +83,10 @@ Git está inicializado e hospedado no GitHub (`fabio-gabriel/tcc`, branch `main`
 - **Formato de trabalho atual:** Markdown (`.md`) — futuramente migra para um modelo LaTeX. Escreva já com isso em mente: títulos hierárquicos consistentes, citações no formato autor-data (ABNT), referências em lista ao final, evitar marcações que não tenham equivalente em LaTeX.
 - **Tipo de TCC:** monografia bibliográfica **com experimento próprio**.
 - **Setup experimental do usuário:** Ubuntu + **AMD Radeon RX 9070 XT** (arquitetura RDNA 4). Após o reenquadramento de 2026-08-20, esse hardware é o **estudo de caso**, não o objeto da tese: o objeto é o custo de abstração dos backends. A 9070 XT sustenta o eixo secundário (efeito do hardware com implementação constante) e o eixo bibliográfico de "suporte declarado × efetivo".
-  - **Atenção:** suporte oficial do ROCm a Radeon de consumo (RDNA) historicamente é parcial e instável. Verifique a matriz de compatibilidade do ROCm para a RX 9070 XT antes de planejar o experimento — isso é, inclusive, parte da contribuição do TCC (documentar o estado real do suporte).
-  - **Bloqueio conhecido (2026-08-20):** a máquina roda **Ubuntu 26.04**, que está **fora** da matriz de suporte do ROCm (exige 24.04.4/22.04.5). Decisão pendente em `PLANO.md` §7. A situação é, ela própria, evidência do eixo bibliográfico.
+  - **Atenção:** o suporte oficial do ROCm a Radeon de consumo (RDNA) *historicamente* foi parcial e instável, mas **isso não vale mais para gfx1201** — a matriz do ROCm 7.14.0 lista a RX 9070 XT como "✅ Supported". Verifique sempre a matriz vigente antes de afirmar qualquer coisa sobre suporte; o estado muda rápido, e documentá-lo é parte da contribuição do TCC.
+  - **CORREÇÃO (2026-08-25) — ler antes de repetir a afirmação antiga.** Entre 2026-08-20 e 2026-08-25 este arquivo afirmou que "Ubuntu 26.04 está fora da matriz de suporte do ROCm" e tratou isso como evidência do eixo "suporte declarado × efetivo". **A afirmação é falsa.** A matriz de compatibilidade do ROCm 7.14.0 (datada de 2026-07-16) lista, para gfx1201, `Ubuntu 26.04 (GA kernel: 7.0)`, `Ubuntu 24.04.4 (GA kernel: 6.8)` e `Ubuntu 22.04.5 (GA kernel: 5.15)`. O erro veio de consultar uma página **explicitamente marcada como obsoleta** (`install-on-linux/reference/system-requirements.html`, datada de 2026-07-15, que exibe o aviso *"This page has moved!"*). Detalhamento em `bibliografia/verificacao-experimento-rdna4.md` §1.
+  - **Estado do SO (2026-08-25):** a máquina foi reinstalada com **Ubuntu 24.04.4 LTS**, kernel `7.0.0-30-generic` (HWE), com base na afirmação errada acima. O 24.04.4 também consta da matriz, portanto a configuração é **válida** — mas a reinstalação **não era necessária**. Decisão de não reverter registrada em `PLANO.md` §7.
+  - **Lição de método, válida para todo o TCC:** não citar página de documentação sem verificar se foi superseded, e não converter inconveniência de ambiente em "evidência" antes de checar a fonte vigente. Este episódio é caso concreto do viés de confirmação que o §2 do `PLANO.md` procura evitar — e o desmentido veio de uma conferência de 10 minutos na fonte primária.
 
 ## Convenções de trabalho
 
