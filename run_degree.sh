@@ -83,12 +83,28 @@ for i in $(seq "$FIRST" "$LAST"); do
   fi
 
   # criterios de invalidacao — pre-registro §9.
-  # -F trata o padrao como texto literal: dispensa escape e e imune a perda
-  # de barra invertida em copia/colagem.
-  grep -qF 'Using device [0]' "$L" \
-    || { echo "ABORTA: dispositivo inesperado em $L" >&2; exit 1; }
-  grep -qF 'RX 9070 XT (RADV GFX1201) - VIABLE' "$L" \
-    || { echo "ABORTA: GPU esperada nao enumerada em $L" >&2; exit 1; }
+  #
+  # Historico: duas tentativas anteriores casavam a string literal
+  # 'Using device [0]'. Ambas falharam, embora a linha exista no log (verificado
+  # em 2026-09-08: grep -n acha, grep -F nao casa) — os bytes reais divergem do
+  # esperado em whitespace. Abordagem atual:
+  #   - extrair o indice numerico em vez de casar o formato;
+  #   - usar apenas padroes SEM ESPACO para o resto.
+  # Em caso de falha, imprime a linha com cat -A para revelar bytes invisiveis,
+  # de modo que a proxima falha seja diagnostico e nao chute.
+
+  DEV_LINE="$(grep -m1 'Using device' "$L" || true)"
+  DEV_IDX="$(printf '%s' "$DEV_LINE" | tr -dc '0-9')"
+  if [ "$DEV_IDX" != "0" ]; then
+    echo "ABORTA: dispositivo inesperado (indice extraido='$DEV_IDX') em $L" >&2
+    echo "        linha literal, com bytes visiveis:" >&2
+    printf '%s\n' "$DEV_LINE" | cat -A >&2
+    exit 1
+  fi
+
+  grep -qF 'GFX1201' "$L" \
+    || { echo "ABORTA: GPU esperada (GFX1201) nao enumerada em $L" >&2; exit 1; }
+
   ! grep -qiF 'USE_EMULATED' "$L" \
     || { echo "ABORTA: caminho emulado acionado em $L" >&2; exit 1; }
 

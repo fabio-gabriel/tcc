@@ -38,9 +38,24 @@ Nenhum estágio pode ser alterado depois de iniciadas as execuções que ele gov
 | Fork do código experimental | **`github.com/fabio-gabriel/vksplatTCC`**, branch **`tcc-base`** |
 | Upstream do fork | `github.com/harry7557558/vksplat`, base no commit `b3ad2b048918496616e0e9346e35c606d813ab55` |
 | Licença do upstream | Apache-2.0 — modificação e redistribuição com atribuição são permitidas |
-| **Commit do estágio 1** | **`879dc8751e9c3d229506028600998840f24bb227`** (2026-09-02) |
+| **Commit que introduziu este protocolo** | **`f02183b`** — 2026-09-08T21:57:51-03:00 |
+| Alcançou o remoto em | `2934c03` (merge), 2026-09-08T22:01:22-03:00 |
 
-> **Nota sobre a circularidade desta referência.** Um arquivo não pode conter o hash do commit que o contém. O estágio 1 do pré-registro foi commitado como **`879dc87`**; a linha acima foi acrescentada em commit posterior e é a **única** alteração de conteúdo em relação a ele. O conteúdo protocolar vinculante é o de `879dc87`, verificável por `git show 879dc87` e por `git diff 879dc87 HEAD -- pivo-reprodutibilidade-3dgs/pre-registro.md`. A validade do pré-registro vem do histórico do git, não de um campo dentro do arquivo.
+> **CORREÇÃO (2026-09-08) — leia antes de citar qualquer commit deste pré-registro.**
+>
+> Uma versão anterior desta seção afirmava que "o estágio 1 do pré-registro foi commitado como `879dc87`, em 2026-09-02". **As duas informações estavam erradas.** Verificado no histórico:
+>
+> | Commit | Data | Conteúdo real |
+> |---|---|---|
+> | `879dc87` | 2026-09-04T19:31 | **apenas `run_degree.sh`**, 18 linhas. **Não contém o pré-registro.** |
+> | `f02183b` | 2026-09-08T21:57 | cria `pre-registro.md` com o protocolo completo e os quatro SHAs de §3.1; atualiza o caderno de campo; cria a versão vigente do `run_degree.sh` |
+> | `2934c03` | 2026-09-08T22:01 | merge que integra os dois e leva `f02183b` ao remoto |
+>
+> Origem do erro: o SHA `879dc87` foi informado como sendo o do pré-registro e aceito sem inspecionar o commit. É o mesmo padrão do episódio da matriz do ROCm em 2026-08-25 — afirmação registrada sem verificação da fonte primária, sendo que `git show 879dc87 --stat` a desmentiria em segundos.
+>
+> **A prioridade do pré-registro está intacta, e isto é o que importa:** nenhuma execução medida ocorreu. As execuções de 2026-09-01 (bring-up) e a de 2026-09-08 (validação de encanamento) estão declaradas como tais no caderno de campo e **não** são dados do experimento. A primeira execução medida é a série D0, ainda não iniciada. Portanto o protocolo continua fixado *antes* dos dados, que é a única propriedade que o pré-registro precisa ter.
+>
+> **Referência vinculante:** o conteúdo protocolar é o de **`f02183b`**, verificável por `git show f02183b:pivo-reprodutibilidade-3dgs/pre-registro.md`. Alterações posteriores a ele são inspecionáveis por `git diff f02183b HEAD -- pivo-reprodutibilidade-3dgs/pre-registro.md` e, até 2026-09-08, consistem apenas desta correção. A validade vem do histórico do git, não de um campo dentro do arquivo — um arquivo não pode conter o hash do commit que o contém.
 
 ## 2. Ambiente, fixado
 
