@@ -84,20 +84,24 @@ for i in $(seq "$FIRST" "$LAST"); do
 
   # criterios de invalidacao — pre-registro §9.
   #
-  # Historico: duas tentativas anteriores casavam a string literal
-  # 'Using device [0]'. Ambas falharam, embora a linha exista no log (verificado
-  # em 2026-09-08: grep -n acha, grep -F nao casa) — os bytes reais divergem do
-  # esperado em whitespace. Abordagem atual:
-  #   - extrair o indice numerico em vez de casar o formato;
-  #   - usar apenas padroes SEM ESPACO para o resto.
-  # Em caso de falha, imprime a linha com cat -A para revelar bytes invisiveis,
-  # de modo que a proxima falha seja diagnostico e nao chute.
+  # ATENCAO: o VkSplat COLORE a saida com codigos de escape ANSI. Diagnosticado
+  # em 2026-09-08 via cat -A: a linha e, literalmente,
+  #     Using device [^[[0m0^[[m]
+  # ou seja, o indice vem embrulhado em ESC[0m ... ESC[m. Consequencias:
+  #   - casar a string 'Using device [0]' NUNCA funciona;
+  #   - extrair digitos sem limpar ANSI captura o '0' de '[0m' tambem, dando '00'.
+  # Portanto: limpar ANSI PRIMEIRO, extrair depois.
+  #
+  # Principio geral: o log arquivado permanece bruto (e o registro primario);
+  # a limpeza acontece na leitura, nunca na gravacao.
 
   DEV_LINE="$(grep -m1 'Using device' "$L" || true)"
-  DEV_IDX="$(printf '%s' "$DEV_LINE" | tr -dc '0-9')"
+  DEV_CLEAN="$(printf '%s' "$DEV_LINE" | sed -e 's/\x1B\[[0-9;]*[a-zA-Z]//g')"
+  DEV_IDX="$(printf '%s' "$DEV_CLEAN" | tr -dc '0-9')"
   if [ "$DEV_IDX" != "0" ]; then
     echo "ABORTA: dispositivo inesperado (indice extraido='$DEV_IDX') em $L" >&2
-    echo "        linha literal, com bytes visiveis:" >&2
+    echo "        linha limpa : '$DEV_CLEAN'" >&2
+    echo "        linha bruta, com bytes visiveis:" >&2
     printf '%s\n' "$DEV_LINE" | cat -A >&2
     exit 1
   fi
