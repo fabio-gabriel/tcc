@@ -326,3 +326,71 @@ Adotar **`TrainerConfig` (ADC)** para a escada de ablação D0–D3. Razões, em
 **Adição recomendada, barata:** rodar o degrau **D0 também em MCMC** (30 execuções ≈ 3 h) como comparação secundária. Serve para testar se fixar a contagem por `cap_max` suprime ou apenas esconde a dispersão — pergunta interessante que custa 3 horas.
 
 **Correção de justificativa registrada:** em 2026-09-01 eu havia recomendado ADC alegando "menos aleatoriedade interna que a MCMC". A auditoria mostra que **as duas usam RNG** — a ADC em `default.slang`, fase `Split` (`randn3(uniforms.seed, id_src)`), e ambas semeadas a partir de `rng(42)`, com gerador *counter-based* determinístico. A justificativa correta é a do item 1 acima, não a redução de aleatoriedade.
+
+---
+
+## 2026-09-02 — Auditoria da reordenação Morton: **quarta fonte de não-determinismo, e a mais consequente**
+
+Auditoria de código no commit fixado `b3ad2b0`. O resultado muda a escada de ablação de quatro para cinco degraus — **antes** de o pré-registro ser commitado.
+
+### O achado
+
+`vksplat/slang/morton_sort.slang`, fase **`ComputeStats`** (linhas 58-70), tem **6 sítios próprios de `InterlockedAddF32`** — acumulação em `float32` de média e variância das posições das gaussianas, por redução entre workgroups, **sem ordem imposta**:
+
+```
+stats.InterlockedAddF32(0*sizeof(float), mean.x);
+...
+stats.InterlockedAddF32(5*sizeof(float), mean2.z);
+```
+
+Há pré-redução por `WaveActiveSum` e `groupshared`, logo é **uma** atômica por workgroup por componente. Com `num_splats <= 1024` haveria um único workgroup e a soma seria determinística; acima disso — sempre, em cena real — fica sujeita à ordem de chegada.
+
+**O mecanismo de amplificação é uma função degrau.** A fase `GenerateKeys` normaliza a posição por essas estatísticas e quantiza com `uint32_t(pos.x * (float)(1 << 10) + 0.5f)` — 10 bits por eixo, chave de 30 bits. Média ou desvio diferindo no último bit alteram a posição normalizada, e **qualquer gaussiana próxima de fronteira de voxel cai em célula vizinha** → chave Morton diferente → **permutação diferente do array inteiro**. Sem suavização.
+
+### Por que isso ameaçava o plano
+
+Citação literal do relatório: *"Isto é independente do backward. Mesmo que os 9 sítios de `_ATOMIC_ADD` em `alphablend_shader_bwd_per_splat.slang` fossem tornados determinísticos, `ComputeStats` continuaria não-determinístico. A intervenção planejada no backward não cobre este sítio."*
+
+Ou seja: **H3a, na formulação anterior, nasceria refutada.** O degrau que patcheava só o backward não poderia produzir execuções bit-idênticas, e o motivo apareceria na semana 6 em vez de agora.
+
+A reordenação também **remapeia os `splat_id` de destino** das atômicas do backward — aplica a mesma permutação a `sh_coeffs`, `xyz_ws`, `rotations`, `scales_opacs`, aos buffers de gradiente e ao estado do Adam. Altera portanto o padrão de colisão dessas atômicas: é fonte independente **e a montante**.
+
+### Consequência: escada de cinco degraus
+
+D3 passa a ser "desativar a reordenação Morton" (`#if 1` → `#if 0` em `gs_trainer.cpp:1050` e `:1264`; **não há flag, campo de config nem variável de ambiente**), e a intervenção em ponto fixo vira **D4**. Registrado em `../pivo-reprodutibilidade-3dgs/pre-registro.md` §3.1, com H3 desdobrada em H3.1–H3.4, uma por degrau.
+
+**H3.3 — "desativar a reordenação Morton reduz a dispersão" — é hipótese nova, criada por esta auditoria, e nenhum trabalho localizado a considera.**
+
+### Inventário completo de atômicas em `float32`
+
+Varredura dos 18 arquivos de `vksplat/slang/`:
+
+| Arquivo | Sítios |
+|---|---|
+| `alphablend_shader_bwd_per_splat.slang` | 9 |
+| `alphablend_shader_bwd_per_pixel.slang` | 9 |
+| `alphablend_shader_bwd_tensor.slang` | 9 |
+| **`morton_sort.slang`** | **6** |
+| `ssim.slang`, `utils.slang` e os 12 restantes | **0** |
+
+Como há três variantes de backward e o escalonador em AMD alterna entre `PerSplat` e `Tensor_0_8_8`, o patch de D4 cobre só `PerSplat` — **suficiente porque D2 é cumulativo e fixa essa variante.** Propriedade do desenho, a declarar no texto.
+
+### Verificado como determinístico
+
+- **Radix sort:** ranking por `subgroupBallot` com desempate pelo índice anterior; atômicos só inteiros em memória compartilhada; `barrier()` por iteração. Permutação única dadas as chaves.
+- **Compactação de poda da ADC:** prefix-sum inteiro (`cumsum.slang` → `where.slang`), estável.
+- **Apêndice de dupli/split:** índices-fonte em ordem crescente de `gid`, sem atômica de append.
+- **Densificação MCMC:** atômicos **inteiros** de contagem; índices por busca binária sobre `hash_u32_u64(seed, tid)`, função pura.
+- **`ssim.slang`:** acumula em `groupshared` com barreira, uma escrita por thread, sem redução entre workgroups.
+
+### Alcance temporal do Morton
+
+A condição de execução (`step % config.refine_every == 0`) é **mais frouxa** que a da densificação: roda antes de `refine_start_iter` e inclusive em `step == 0`. Na ADC há `return` antecipado em `step >= refine_stop_iter` que a curto-circuita; **na MCMC não há**, e ela roda até o fim do treino. Coerente com a densificação ADC cessar por volta do passo 15.000.
+
+### Possível defeito upstream, a verificar
+
+`gs_trainer.cpp:1390-1391` chama `applyIndex(buffers.default_radii, 2)` e `applyIndex(buffers.default_grad, 2*2)` — *strides* 2 e 4 — enquanto os buffers são alocados como `num_splats` e `2*num_splats` floats, ou seja 1 e 2 por gaussiana. No caminho de poda o *stride* é derivado do tamanho real; aqui está fixo. **Não verificado** se `resizeDeviceBuffer` arredonda a alocação de modo a tornar isso inócuo (`buffer.cpp` não lido). Se for defeito real, é reportável upstream e vira achado próprio.
+
+### Não verificado
+
+`buffer.cpp`; encadeamento de passes de `executeSort` no host; `upsweep.comp` e `spine.comp` do radix sort; e a **magnitude empírica** com que a divergência de `stats` se converte em chaves Morton distintas — que é justamente o que o degrau D3 vai medir.
