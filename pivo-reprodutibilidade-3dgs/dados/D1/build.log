@@ -1,0 +1,56 @@
+Obtaining file:///home/fabio/code/vksplatTCC/vksplat
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: numpy in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from vksplat==0.1.0) (2.5.2)
+Requirement already satisfied: opencv-python in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from vksplat==0.1.0) (5.0.0.93)
+Requirement already satisfied: tqdm in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from vksplat==0.1.0) (4.70.0)
+Requirement already satisfied: torchmetrics>=1.0.1 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torchmetrics[image]>=1.0.1->vksplat==0.1.0) (1.9.0)
+Requirement already satisfied: packaging>17.1 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (26.3)
+Requirement already satisfied: torch>=2.0.0 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (2.13.0)
+Requirement already satisfied: lightning-utilities>=0.15.3 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (0.15.3)
+Requirement already satisfied: typing_extensions in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from lightning-utilities>=0.15.3->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (4.16.0)
+Requirement already satisfied: filelock in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (3.32.5)
+Requirement already satisfied: setuptools>=77.0.3 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (84.0.0)
+Requirement already satisfied: sympy>=1.13.3 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (1.14.0)
+Requirement already satisfied: networkx>=2.5.1 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (3.6.1)
+Requirement already satisfied: jinja2 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (3.1.6)
+Requirement already satisfied: fsspec>=0.8.5 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (2026.7.0)
+Requirement already satisfied: cuda-toolkit==13.0.3 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.0.3.0)
+Requirement already satisfied: cuda-bindings<14,>=13.0.3 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.3.1)
+Requirement already satisfied: nvidia-cudnn-cu13==9.20.0.48 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (9.20.0.48)
+Requirement already satisfied: nvidia-cusparselt-cu13==0.8.1 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (0.8.1)
+Requirement already satisfied: nvidia-nccl-cu13==2.29.7 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (2.29.7)
+Requirement already satisfied: nvidia-nvshmem-cu13==3.4.5 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (3.4.5)
+Requirement already satisfied: triton==3.7.1 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (3.7.1)
+Requirement already satisfied: nvidia-cublas==13.1.1.3.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.1.1.3)
+Requirement already satisfied: nvidia-cuda-nvrtc==13.0.88.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.0.88)
+Requirement already satisfied: nvidia-cuda-runtime==13.0.96.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.0.96)
+Requirement already satisfied: nvidia-cufft==12.0.0.61.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (12.0.0.61)
+Requirement already satisfied: nvidia-nvjitlink<14,>=13.0.88 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.3.33)
+Requirement already satisfied: nvidia-cufile==1.15.1.6.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (1.15.1.6)
+Requirement already satisfied: nvidia-cuda-cupti==13.0.85.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.0.85)
+Requirement already satisfied: nvidia-curand==10.4.0.35.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (10.4.0.35)
+Requirement already satisfied: nvidia-cusolver==12.0.4.66.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (12.0.4.66)
+Requirement already satisfied: nvidia-cusparse==12.6.3.3.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (12.6.3.3)
+Requirement already satisfied: nvidia-nvtx==13.0.85.* in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-toolkit[cublas,cudart,cufft,cufile,cupti,curand,cusolver,cusparse,nvjitlink,nvrtc,nvtx]==13.0.3; platform_system == "Linux"->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (13.0.85)
+Requirement already satisfied: cuda-pathfinder>=1.4.2 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from cuda-bindings<14,>=13.0.3->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (1.8.0)
+Requirement already satisfied: mpmath<1.4,>=1.1.0 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from sympy>=1.13.3->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (1.3.0)
+Requirement already satisfied: torch-fidelity<=0.4.0 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torchmetrics[image]>=1.0.1->vksplat==0.1.0) (0.4.0)
+Requirement already satisfied: torchvision>=0.15.1 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torchmetrics[image]>=1.0.1->vksplat==0.1.0) (0.28.0)
+Requirement already satisfied: scipy>1.0.0 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torchmetrics[image]>=1.0.1->vksplat==0.1.0) (1.18.1)
+Requirement already satisfied: pillow in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from torch-fidelity<=0.4.0->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (12.3.0)
+Requirement already satisfied: MarkupSafe>=2.0 in /home/fabio/code/tcc/.venv/lib/python3.12/site-packages (from jinja2->torch>=2.0.0->torchmetrics>=1.0.1->torchmetrics[image]>=1.0.1->vksplat==0.1.0) (3.0.3)
+Building wheels for collected packages: vksplat
+  Building editable for vksplat (pyproject.toml): started
+  Building editable for vksplat (pyproject.toml): finished with status 'done'
+  Created wheel for vksplat: filename=vksplat-0.1.0-0.editable-cp312-cp312-linux_x86_64.whl size=2713 sha256=208f2f301c1f4e0ec66fd719d06045392ad6eba464629e583c990a01f5a1b0db
+  Stored in directory: /tmp/pip-ephem-wheel-cache-cvftb_b9/wheels/32/36/48/648fce6840c4fd978f3997f65ea557abd5418ced760e2da892
+Successfully built vksplat
+Installing collected packages: vksplat
+  Attempting uninstall: vksplat
+    Found existing installation: vksplat 0.1.0
+    Uninstalling vksplat-0.1.0:
+      Successfully uninstalled vksplat-0.1.0
+Successfully installed vksplat-0.1.0

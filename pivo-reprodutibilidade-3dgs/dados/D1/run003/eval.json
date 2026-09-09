@@ -1,0 +1,202 @@
+{
+    "mean": {
+        "psnr": 27.428449233373005,
+        "ssim": 0.8640620013078054,
+        "lpips_vgg": 0.10716193603972594,
+        "lpips_alex": 0.07564205086479585
+    },
+    "images": [
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC07956.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00000.png",
+            "psnr": 23.940996170043945,
+            "ssim": 0.835564374923706,
+            "lpips_vgg": 0.12420015782117844,
+            "lpips_alex": 0.0852312445640564
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC07964.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00001.png",
+            "psnr": 23.580577850341797,
+            "ssim": 0.7742303609848022,
+            "lpips_vgg": 0.14933189749717712,
+            "lpips_alex": 0.11975569278001785
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC07972.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00002.png",
+            "psnr": 28.02127456665039,
+            "ssim": 0.856813371181488,
+            "lpips_vgg": 0.10473458468914032,
+            "lpips_alex": 0.07484867423772812
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC07980.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00003.png",
+            "psnr": 24.88739585876465,
+            "ssim": 0.8128368854522705,
+            "lpips_vgg": 0.11956015974283218,
+            "lpips_alex": 0.08095256239175797
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC07988.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00004.png",
+            "psnr": 19.99859046936035,
+            "ssim": 0.7798377871513367,
+            "lpips_vgg": 0.1575213223695755,
+            "lpips_alex": 0.12119710445404053
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC07996.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00005.png",
+            "psnr": 27.046287536621094,
+            "ssim": 0.8662728071212769,
+            "lpips_vgg": 0.10820354521274567,
+            "lpips_alex": 0.08055505156517029
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08004.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00006.png",
+            "psnr": 29.501564025878906,
+            "ssim": 0.9046972990036011,
+            "lpips_vgg": 0.09356991946697235,
+            "lpips_alex": 0.06165032833814621
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08012.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00007.png",
+            "psnr": 29.352996826171875,
+            "ssim": 0.9119938015937805,
+            "lpips_vgg": 0.09056513011455536,
+            "lpips_alex": 0.055787038058042526
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08020.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00008.png",
+            "psnr": 27.11367416381836,
+            "ssim": 0.8614828586578369,
+            "lpips_vgg": 0.10205649584531784,
+            "lpips_alex": 0.07256733626127243
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08028.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00009.png",
+            "psnr": 27.469297409057617,
+            "ssim": 0.8584434986114502,
+            "lpips_vgg": 0.10141876339912415,
+            "lpips_alex": 0.07617349922657013
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08036.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00010.png",
+            "psnr": 27.33838653564453,
+            "ssim": 0.887400209903717,
+            "lpips_vgg": 0.09679993987083435,
+            "lpips_alex": 0.06975013017654419
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08044.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00011.png",
+            "psnr": 28.689579010009766,
+            "ssim": 0.8938458561897278,
+            "lpips_vgg": 0.0973140299320221,
+            "lpips_alex": 0.06099961698055267
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08052.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00012.png",
+            "psnr": 27.202678680419922,
+            "ssim": 0.851686954498291,
+            "lpips_vgg": 0.11005702614784241,
+            "lpips_alex": 0.07904574275016785
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08060.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00013.png",
+            "psnr": 29.598094940185547,
+            "ssim": 0.8926703333854675,
+            "lpips_vgg": 0.09430127590894699,
+            "lpips_alex": 0.06982384622097015
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08068.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00014.png",
+            "psnr": 30.024545669555664,
+            "ssim": 0.8906999230384827,
+            "lpips_vgg": 0.09589587152004242,
+            "lpips_alex": 0.06476515531539917
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08076.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00015.png",
+            "psnr": 25.863052368164062,
+            "ssim": 0.8183729648590088,
+            "lpips_vgg": 0.11120481789112091,
+            "lpips_alex": 0.08118206262588501
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08084.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00016.png",
+            "psnr": 27.505319595336914,
+            "ssim": 0.8354721069335938,
+            "lpips_vgg": 0.10478749871253967,
+            "lpips_alex": 0.07983444631099701
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08092.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00017.png",
+            "psnr": 30.577768325805664,
+            "ssim": 0.9102014303207397,
+            "lpips_vgg": 0.09517250210046768,
+            "lpips_alex": 0.06672897189855576
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08100.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00018.png",
+            "psnr": 28.632234573364258,
+            "ssim": 0.899819016456604,
+            "lpips_vgg": 0.09954139590263367,
+            "lpips_alex": 0.0635775625705719
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08108.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00019.png",
+            "psnr": 29.74112892150879,
+            "ssim": 0.911494791507721,
+            "lpips_vgg": 0.10291261970996857,
+            "lpips_alex": 0.06749642640352249
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08116.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00020.png",
+            "psnr": 29.47354507446289,
+            "ssim": 0.8892913460731506,
+            "lpips_vgg": 0.0959281399846077,
+            "lpips_alex": 0.06793026626110077
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08124.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00021.png",
+            "psnr": 26.200868606567383,
+            "ssim": 0.831143319606781,
+            "lpips_vgg": 0.11889459192752838,
+            "lpips_alex": 0.08546558022499084
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08132.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00022.png",
+            "psnr": 27.6790714263916,
+            "ssim": 0.864595353603363,
+            "lpips_vgg": 0.10255171358585358,
+            "lpips_alex": 0.0690104141831398
+        },
+        {
+            "im_train": "/home/fabio/360_v2/garden/images_4/DSC08140.JPG",
+            "im_render": "/home/fabio/tcc-runs/series/D1/run003/20260909_122158_garden/val_00023.png",
+            "psnr": 28.843852996826172,
+            "ssim": 0.8986213803291321,
+            "lpips_vgg": 0.0953630656003952,
+            "lpips_alex": 0.06108046695590019
+        }
+    ]
+}
