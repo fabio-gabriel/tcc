@@ -45,8 +45,8 @@ Requirement already satisfied: MarkupSafe>=2.0 in /home/fabio/code/tcc/.venv/lib
 Building wheels for collected packages: vksplat
   Building editable for vksplat (pyproject.toml): started
   Building editable for vksplat (pyproject.toml): finished with status 'done'
-  Created wheel for vksplat: filename=vksplat-0.1.0-0.editable-cp312-cp312-linux_x86_64.whl size=2713 sha256=a28fe8116086720344b4713e561b11e3a276ef76542b4c6dfae09261464a4121
-  Stored in directory: /tmp/pip-ephem-wheel-cache-y4fi_btr/wheels/32/36/48/648fce6840c4fd978f3997f65ea557abd5418ced760e2da892
+  Created wheel for vksplat: filename=vksplat-0.1.0-0.editable-cp312-cp312-linux_x86_64.whl size=2713 sha256=8b40b2b202340376883fd68f9a3c594e5305a263e46cff57b338626c8532baca
+  Stored in directory: /tmp/pip-ephem-wheel-cache-05x7s61c/wheels/32/36/48/648fce6840c4fd978f3997f65ea557abd5418ced760e2da892
 Successfully built vksplat
 Installing collected packages: vksplat
   Attempting uninstall: vksplat
