@@ -444,6 +444,8 @@ Quatro execuções completas de ADC foram produzidas antes do harness estar vál
 
 ## 2026-09-08/09 — Séries D0 a D3 executadas, N=20 por degrau
 
+> **Nota acrescentada em 2026-09-21, não edição silenciosa:** o título e os números de N=20 desta entrada **não são todos de 09-08/09**. O segundo bloco de D3 (`run010`–`run019`) só foi executado em **2026-09-20/21**, sob kernel diferente. Esta entrada foi redigida em 2026-09-21 e consolidou os números finais sob a data da primeira metade, o que apaga essa distinção. Ver a entrada **"2026-09-21 — Auditoria dos dados em disco"** ao final deste caderno.
+
 Orquestradas por `run_degree.sh`, em **blocos intercalados de 10**. Dados em `pivo-reprodutibilidade-3dgs/dados/<degrau>/`, com `manifest.tsv` de hashes.
 
 **Decisão de sequenciamento (2026-09-09):** a ordem dos degraus **não** está pré-registrada. Adotados blocos intercalados de 10 em vez de completar um degrau por vez, por dois motivos: dá atribuição cedo, e evita confundir o efeito do degrau com fatores que variem no tempo (carga, deriva térmica). É a recomendação de Hoefler e Belli — não alinhar o que não se consegue fixar.
@@ -570,7 +572,283 @@ Achado central da auditoria de mapeamento. Duas razões:
 
 Plano completo em `../pivo-reprodutibilidade-3dgs/pre-registro.md` §10.
 
+## 2026-09-21 — Auditoria dos dados em disco: **D3 não é uma série homogênea**
+
+Auditoria de evidência, não de leitura: contagem de execuções, conferência de hashes, reexecução de `analise_dispersao.py` e inspeção de `env.json`/`origem.txt` de todas as 80 execuções.
+
+### O que confere exatamente
+
+- **N=20 em cada um de D0, D1, D2, D3.** 20 diretórios `run*` e 60 linhas de manifesto por degrau.
+- **80 hashes de `splat.ply`, 80 distintos** — 20/20 em cada degrau, e 80 distintos no agregado. **H1 reconfirmada por evidência.**
+- Commit uniforme dentro de cada degrau: D0 `3a5c0d97a6`, D1 `4cb921a82f`, D2 `b395759efa`, D3 `d222c47182`.
+- Descritivas de D0 reproduzidas dígito a dígito: mediana 27,3614; IQR 0,0507; amplitude 0,1905; **H2 = 27/190 = 14,2%**. IQRs de D1 0,0331, D2 0,0442, D3 0,0214 — todos batem com a tabela da entrada de 09-08/09.
+- Dispositivo idêntico nas 80: `AMD Radeon RX 9070 XT (RADV GFX1201)`, `has_float32_atomic_add: true`, `subgroup_size: 64`. Nenhuma execução caiu em `llvmpipe`; nenhuma caiu em emulação de atômico.
+
+### O que **não** confere — achado principal desta auditoria
+
+**O kernel não é constante em D3.** Por `env.json`:
+
+| Degrau | `7.0.0-30-generic` | `7.0.0-31-generic` |
+|---|---|---|
+| D0 | 20 | 0 |
+| D1 | 20 | 0 |
+| D2 | 20 | 0 |
+| **D3** | **10** (`run000`–`run009`) | **10** (`run010`–`run019`) |
+
+A divisão coincide exatamente com uma lacuna de 11 dias, por `origem.txt`:
+
+- D0, D1, D2: os dois blocos de 10 correram em sequência contínua entre `20260908_225237` e `20260910_042513`.
+- **D3: bloco 1 em `20260909_165623`–`20260909_193002`; bloco 2 em `20260920_224213`–`20260921_011547`.**
+
+O intercalamento declarado (D0→D1→D2→D3, depois repetir) **de fato ocorreu** — mas o segundo bloco de D3 ficou pendente e foi completado 11 dias depois, atravessando uma atualização de kernel. Isso é o commit `b876397` ("D3 faltante"). **A justificativa escrita para o intercalamento era "evitar confundir o efeito do degrau com fatores que variem no tempo"; para D3, e só para D3, essa proteção não valeu.**
+
+### Por que isto exige escrutínio e não nota de rodapé
+
+D3 é o degrau cujos números **mais favorecem a tese**: menor IQR (0,0214), único com **0/190** pares ≥ 0,10 dB, e o único cujo Fligner-Killeen rejeita contra D0 (p = 0,034). É precisamente o achado que a disciplina de método manda examinar com rigor **maior**.
+
+Separando D3 pelos dois blocos (PSNR, N=10 cada — **análise post-hoc, exploratória, não pré-registrada**):
+
+| Bloco | kernel | mediana | IQR | amplitude |
+|---|---|---|---|---|
+| `run000`–`run009` (09-09) | `-30` | 27,3900 | 0,0131 | 0,0526 |
+| `run010`–`run019` (09-20/21) | `-31` | 27,3867 | 0,0255 | 0,0813 |
+
+Leitura honesta dos dois sentidos:
+
+- **Tranquilizador quanto a posição:** as medianas diferem 0,0033 dB, duas ordens abaixo do limiar de 0,10 dB. Não há deslocamento atribuível ao kernel.
+- **Não conclusivo quanto a escala, e não pode ser usado nos dois sentidos:** o IQR quase dobra entre blocos, mas com N=10 por bloco isso é indistinguível de ruído — com N=20 o IC bootstrap da razão de IQRs já cobria um fator de dez. **Não se pode afirmar que o kernel alterou a dispersão, nem que não alterou.**
+- **A consequência desconfortável:** se a heterogeneidade infla o IQR agregado de D3, então restringir D3 ao bloco homogêneo (IQR 0,0131) reforçaria H3.4. **Fazer esse recorte depois de ver os dados seria seleção de subconjunto favorável.** Fica proibido sem desvio declarado e datado, e a razão de ser proibido é justamente ele favorecer a tese.
+
+### Lacuna de instrumentação que este achado expõe
+
+**O `env.json` não registra a versão do Mesa/RADV** — só o `deviceName`. Em um trabalho sobre reprodutibilidade numérica, o driver é o compilador de SPIR-V para ISA, e portanto é variável de primeira ordem. Como o kernel mudou, é plausível que pacotes de userspace tenham mudado junto, **mas não há dado em disco para decidir, e não se vai afirmar causa sem a saída literal.** Se a máquina Ubuntu ainda tiver o histórico do gerenciador de pacotes, a versão do Mesa em 09-09 e em 09-20 é recuperável a posteriori; caso contrário, entra como limitação declarada. Acrescentar Mesa, versão do RADV e `vulkaninfo` resumido ao `env.json` antes de qualquer série nova.
+
+### Terceira divergência: o ciclo N=30
+
+O caderno registrava, em "Em andamento", um **ciclo N=30 nos quatro degraus, ~11h de máquina**. **Não existe nenhum diretório `run020` ou superior em nenhum degrau do repositório.** O que de fato entrou entre 09-10 e 09-21 foi o completamento de D3 até N=20. Se o ciclo N=30 rodou na máquina Ubuntu e não foi sincronizado, é questão de transferência; se não rodou, a linha era projeção e não estado. **Não há evidência em disco para distinguir, e a linha foi corrigida para refletir só o que se pode verificar.**
+
+### Encaminhamento, sem alterar protocolo
+
+Nada aqui muda o pré-registro. As opções, a decidir com o aluno e a registrar como desvio datado se alguma for adotada:
+
+1. **Declarar como limitação** e manter D3 com N=20 heterogêneo. Conservador, e defensável.
+2. **Reexecutar D3 inteiro** sob ambiente único, junto com o ciclo de ampliação de N. Custo ~4,7 h de máquina para 20 execuções a 942 s.
+3. Tratar o bloco como fator explícito na análise. Aumenta complexidade e continua sem poder com N=10.
+
+A opção 2 é a única que restaura a homogeneidade sem seleção post-hoc, e ela se paga se o ciclo de ampliação de N for rodar de todo modo.
+
+## 2026-09-21 — Instrumentação de ambiente acrescentada ao orquestrador
+
+Resposta à lacuna apontada na auditoria acima. `run_degree.sh` passa a gravar `ambiente.json` — versão de kernel e de oito pacotes de Mesa/Vulkan/libdrm via `dpkg-query`, mais `vulkaninfo` e `glxinfo` com *fallback* — uma vez por série e uma vez por execução, ao lado do `env.json`. Também ecoa kernel e `mesa-vulkan-drivers` no terminal a cada execução, para heterogeneidade aparecer na hora e não numa auditoria 11 dias depois.
+
+**Onde a instrumentação foi posta, e por que não no `tcc_runner.py`.** O `tcc_runner.py` é quem grava o `env.json`, e seria o lugar óbvio — mas ele vive no fork, dentro dos commits e tags dos degraus. Editá-lo teria dois efeitos inaceitáveis: sujaria a árvore do fork, fazendo o próprio `run_degree.sh` abortar na checagem de §9; e alteraria os SHAs de `pre-registro.md` §3.1, que identificam os degraus. O orquestrador é camada **acima** da escada e não pertence ao estado de código de nenhum degrau — é o mesmo argumento do desvio declarado em 2026-09-02. **Nenhum arquivo do fork foi tocado, e nenhum SHA de degrau muda.**
+
+**Natureza da mudança:** puramente observacional. Não altera configuração, seed, dataset, número de passos nem qualquer parâmetro do treino; apenas registra o que já estava lá e não era anotado. Não é desvio de protocolo, é acréscimo de registro — mas fica datado aqui para que séries antigas e novas sejam distinguíveis: **execuções até `D3/run019` não têm `ambiente.json`; da próxima série em diante, têm.**
+
+**Verificação parcial, e o que falta.** `bash -n` passa e o JSON gerado valida em `json.tool`. Mas o teste foi feito **no Mac**, onde `dpkg-query`, `vulkaninfo` e `glxinfo` não existem — exercitou os *fallbacks*, não o caminho real. E expôs um detalhe: `date -Is` é GNU, não BSD, então `snapshot_em` saiu vazio no Mac. Na Ubuntu funciona, e o script já usava `date -Is` antes desta mudança. **Ainda assim, o caminho real só estará verificado quando o primeiro `ambiente.json` da Ubuntu for lido — conferir isso antes de confiar na série da noite de 2026-09-21.**
+
+### Âncora retroativa recuperada do inventário
+
+`experimentos/00-inventario/saidas/inventario-fabio-desktop-20260825T222551Z.md` registra, em **2026-08-25**, via `dpkg -l`:
+
+- `mesa-vulkan-drivers:amd64` **25.2.8-0ubuntu0.24.04.2** — é o pacote que fornece o RADV
+- `libgl1-mesa-dri`, `libegl-mesa0`, `libglx-mesa0`, `mesa-libgallium`: todos `25.2.8-0ubuntu0.24.04.2`
+- `libvulkan1:amd64` `1.3.275.0-1build1`; `libdrm-amdgpu1` `2.4.125-1ubuntu0.1~24.04.2`
+- kernel `7.0.0-30-generic #30~24.04.1-Ubuntu ... Fri Aug 7 13:27:52 UTC`
+
+Note que o bloco de `vulkaninfo` desse inventário saiu **vazio** — motivo pelo qual `dpkg` é a fonte primária da versão no novo snapshot, e o `vulkaninfo` só complemento.
+
+Isso dá um ponto de ancoragem **antes** das séries, não entre os blocos de D3. **A versão do Mesa em 2026-09-09 e em 2026-09-20 continua desconhecida** e só é recuperável pelo histórico do gerenciador de pacotes na máquina Ubuntu.
+
+### Premissa do aluno que a evidência refuta
+
+O aluno relatou não ter atualizado nada no sistema desde o início do TCC. **O `env.json` mostra kernel `7.0.0-30-generic` em 09-09 e `7.0.0-31-generic` em 09-20/21.** Um kernel HWE novo não aparece sem instalação de pacote, e não passa a ser usado sem reinício. Portanto **houve instalação de pacote e reinício nesse intervalo**, independentemente de ter sido deliberada — `unattended-upgrades` é ativo por padrão no Ubuntu para o *pocket* de segurança, e o cenário consistente é instalação automática em algum momento seguida de reinício antes de 09-20.
+
+Consequência de método: **a premissa "nada mudou, logo o Mesa é o mesmo" não se sustenta**, porque ela já é falsa para o kernel. Não se está afirmando que o Mesa mudou — está-se registrando que a inferência não é válida e que a questão é empírica. Resolve-se lendo `/var/log/dpkg.log*` e `/var/log/apt/history.log*` na Ubuntu, e **isso deve ser feito antes de a série da noite começar**, porque é de graça e porque o log rotaciona.
+
+## 2026-09-21 — Agente de busca de originalidade criado
+
+Criado `.optimus/agent/originalidade-3dgs.md`, agente dedicado a fechar a **lacuna 2** do fichamento (`pivo-reprodutibilidade-3dgs/bibliografia/fichamento.md`), que hoje impede qualquer alegação de novidade.
+
+Desenho deliberadamente **adversarial**: a tarefa é procurar o trabalho que torne o TCC redundante, não confirmar que ele é inédito. Achado que ameace a originalidade vai ao topo do relatório. A reivindicação foi decomposta em três partes testáveis separadamente — quantificação, isolamento a seed fixa, atribuição por ablação e intervenção — porque elas têm forças de evidência diferentes e podem cair independentemente.
+
+Cobertura exigida: IEEE Xplore, ACM DL, Eurographics Diglib, OpenReview, Semantic Scholar, DBLP, HAL e Zenodo; termos ampliados incluindo `bitwise reproducibility` e `run-to-run variance`; e issues/PRs dos cinco repositórios, que a lacuna 2 identifica como a fonte provavelmente mais produtiva. Itens nominais a resolver: survey `Advanced3DGS`, leitura integral de FreeTimeGS++ (arXiv:2605.03337) e de NerfBaselines (arXiv:2406.17345).
+
+**Restrições dadas ao agente:** não escreve nem edita arquivo nenhum do repositório, não commita, não altera o pré-registro. Entrega relatório; a incorporação ao fichamento é decisão do aluno. E é obrigado a entregar **tabela de cobertura com as queries literais, contagens e datas de acesso** — sem ela, "nada encontrado" não é afirmável, apenas "não encontrado por esta busca".
+
+**Disparado em 2026-09-21.** A primeira execução **travou** após ~5 minutos e foi abortada; relançada em seguida. Ver a entrada "Primeira execução do agente travou" abaixo, que registra o achado parcial obtido antes da parada — ele é relevante por si.
+
+## 2026-09-21 — Histórico de pacotes lido: **o Mesa não mudou, e o dano é menor do que parecia**
+
+Saída literal de `/var/log/dpkg.log*`, `/var/log/apt/history.log*` e `journalctl --list-boots` na máquina Ubuntu, colhida antes de disparar a série da noite. Fecha a pendência aberta na auditoria de hoje.
+
+### Achado principal: o RADV é o mesmo nas 80 execuções
+
+**Na janela 2026-09-09 a 2026-09-21, o `dpkg.log` não registra nenhuma instalação ou atualização de pacote Mesa, Vulkan ou libdrm.** A lista completa das 79 transações na janela contém kernel, gnupg, sssd, openssh-client, spice-vdagent, librabbitmq4, linux-libc-dev, linux-tools-common — e, em 2026-09-21 06:36, gstreamer, polkit, python3.12, perl, libinput, libc6, libsoup, libaom3, libsqlite3, bubblewrap, wireless-regdb. **Nenhum `mesa-*`, nenhum `libvulkan*`, nenhum `libdrm*`, nenhum `libgl*`.**
+
+Combinado com a âncora do inventário de 2026-08-25, que registra `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.2`: **o compilador de SPIR-V para ISA foi o mesmo nas 80 execuções.** A preocupação central levantada hoje — de que o driver pudesse ter mudado no meio de D3 — **está descartada por evidência, não por suposição.**
+
+### A cronologia exata, agora estabelecida
+
+- `2026-09-09 11:28:52` — `install linux-image-7.0.0-31-generic`, `upgrade linux-image-generic-hwe-24.04 7.0.0-30.30 → 7.0.0-31.31`. Por `apt/history.log`, o autor destas transações é `/usr/bin/unattended-upgrade`.
+- O kernel novo **não passou a valer na hora**: por `journalctl --list-boots`, o boot `-1` durou de `2026-09-08 21:24:59` a `2026-09-10 07:47:12`. **Setenta das oitenta execuções correram nesse único boot**, sob kernel `-30` — D0, D1 e D2 completos, mais D3 `run000`–`run009`.
+- O boot `0` começou em `2026-09-20 22:24:31`, já com `-31`. D3 `run010` começou às `22:42`. **As dez execuções finais de D3 são as únicas em ambiente diferente**, e a diferença é o kernel mais pacotes sem relação com o pipeline gráfico.
+
+Note a coincidência que enganaria qualquer um: a instalação do kernel às `11:28:52` foi **três minutos** antes de D1 `run000` começar, às `11:35:52`. Se a atribuição de kernel tivesse sido feita pela data de instalação do pacote em vez do `uname -r` gravado no `env.json`, a conclusão seria oposta e errada.
+
+### O dano é localizado, e não atinge as hipóteses sustentadas
+
+Vale conferir com desconfiança, porque é conclusão conveniente:
+
+- **D0 é 20/20 homogêneo:** mesmo boot, mesmo kernel, mesmo Mesa. **H2, a afirmação metodológica central do trabalho, repousa sobre dados não afetados.** Os 14,2% de pares com |ΔPSNR| ≥ 0,10 dB estão limpos.
+- **H1 é imune por construção.** Execuções dentro do mesmo boot já produzem hashes distintos; heterogeneidade de ambiente não pode explicar 80/80.
+- **A heterogeneidade está confinada a D3**, que entra nas H3.x — e **nenhuma H3.x se sustentou de todo modo**. O defeito de dados afeta exatamente a parte do trabalho já declarada como não estabelecida por falta de poder.
+
+Continua valendo a proibição: **não restringir D3 ao bloco homogêneo**, porque daria IQR 0,0131 em vez de 0,0214 e reforçaria H3.4 por seleção post-hoc.
+
+### Variável nova, que só apareceu por ler o log até o fim
+
+Em `2026-09-21 06:36`, portanto **depois** de D3 `run019` terminar (~01:31) e **antes** da série da noite, `unattended-upgrade` atualizou `libc6` 2.39-0ubuntu8.8 → 8.9 e `python3.12` 3.12.3-1ubuntu0.15 → 0.17, entre outros.
+
+Por que não é irrelevante: `libc6` carrega a **libm**, e as métricas PSNR/SSIM/LPIPS são computadas em PyTorch de CPU. Mudança em função transcendental de libm alteraria resultados no último bit. **É hipótese plausível, não fato verificado** — não se está afirmando que muda nada. Afirma-se que é variável não controlada, não registrada, e que a série da noite correrá sob libc e Python diferentes das 80 anteriores. Agravante: o `env.json` grava `python: 3.12.3 (main, Jun 19 2026, ...)`, a versão **upstream**, que não distingue revisão Ubuntu `0.15` de `0.17`.
+
+Consequência: `snapshot_ambiente` em `run_degree.sh` passou a registrar também `libc6`, `python3.12`, `libpython3.12t64` e o **`boot_id`** — este último para que separação por reinício apareça no dado, em vez de ter de ser reconstruída de timestamps 11 dias depois.
+
+### Recomendação registrada: congelar o ambiente
+
+`unattended-upgrade` alterou o ambiente **duas vezes dentro da janela experimental** — `2026-09-09 11:28` e `2026-09-21 06:36`. Num trabalho cujo objeto é reprodutibilidade, ambiente que se altera sozinho entre séries é defeito de método, e a evidência agora é literal.
+
+Sugerido ao aluno mascarar as unidades de atualização automática até o depósito, e registrar a data, para que séries posteriores sejam declaradamente de ambiente congelado. **Decisão do aluno; não executado por iniciativa própria.**
+
+## 2026-09-21 — **Ambiente congelado.** Marco de protocolo
+
+O aluno executou, e a saída literal confirma:
+
+```
+sudo systemctl mask unattended-upgrades.service apt-daily.timer apt-daily-upgrade.timer
+Created symlink /etc/systemd/system/unattended-upgrades.service → /dev/null.
+Created symlink /etc/systemd/system/apt-daily.timer → /dev/null.
+Created symlink /etc/systemd/system/apt-daily-upgrade.timer → /dev/null.
+
+systemctl is-enabled unattended-upgrades.service apt-daily-upgrade.timer
+masked
+masked
+```
+
+**Data do congelamento: 2026-09-21.** É um marco que divide o experimento em duas eras, e o texto deve declará-lo:
+
+- **Antes:** as 80 execuções de D0–D3 correram sob ambiente que se alterou sozinho **duas vezes** (`2026-09-09 11:28` e `2026-09-21 06:36`, ambas por `/usr/bin/unattended-upgrade`). As consequências efetivas estão delimitadas: kernel heterogêneo em D3, e `libc6`/`python3.12` distintos para séries a partir de hoje. **O Mesa/RADV nunca mudou**, o que é o que mais importaria.
+- **Depois:** ambiente declaradamente congelado, e a afirmação "execuções nominalmente idênticas" passa a incluir o ambiente de userspace, não apenas cena, seed, commit e máquina.
+
+**Pendência de baixo custo:** reverter o mascaramento após o depósito (`systemctl unmask`), para a máquina não ficar sem correções de segurança indefinidamente. Não é problema de pesquisa, é higiene — mas fica anotado porque é o tipo de coisa que se esquece.
+
+**Limitação a declarar no texto:** congelar o ambiente **hoje** não retroage. As 80 execuções já medidas permanecem como estão, e a heterogeneidade de D3 permanece um fato a declarar, não a corrigir.
+
+## 2026-09-21 — Primeira execução do agente de originalidade travou, e o achado parcial importa
+
+A primeira execução parou após cerca de cinco minutos e ficou dez minutos sem progresso em dois comandos `grep` locais, que deveriam levar menos de um segundo. Estado inconsistente: a sessão reportava `idle` enquanto duas chamadas de ferramenta seguiam marcadas como `running`. **A causa não foi determinada e não se vai afirmar uma** — o registro fica aqui como fato operacional. Contexto que pode ou não ser relevante: imediatamente antes, o agente havia pedido liberação de proxy para `arxiv.org`, o grant foi concedido, usado com sucesso, e expirou. A relançada foi instruída a não usar esse mecanismo e a não disparar comandos em paralelo.
+
+### Achado parcial, verificado antes da parada — e é um sinal de alerta
+
+O agente baixou as duas maiores ameaças à originalidade e contou ocorrências. Resultado, por contagem sobre o texto extraído do HTML do arXiv:
+
+- **FreeTimeGS++**, título confirmado: *"FreeTimeGS++: Secrets of Dynamic Gaussian Splatting and Their Principles"*. Existem **três versões** (v1, v2, v3); v3 é a corrente.
+- A subseção **"Secret 5" sobreviveu até v3** — 2 ocorrências em v1, 2 em v2, 3 em v3.
+- **A expressão `run-to-run` aparece 3 vezes em v1, 3 em v2 e 10 em v3.** A versão atual **expandiu** a discussão de variação entre execuções.
+- **NerfBaselines** (arXiv:2406.17345) tem v1 e v2; v3 não existe (HTTP 404).
+
+**Por que o salto de 3 para 10 merece atenção imediata, e não celebração:** o levantamento de 2026-08-26 avaliou a ameaça de FreeTimeGS++ com base no HTML principal, sem comparar versões. Se v3 aprofundou a análise de variação entre execuções, os autores podem ter avançado para o território que o TCC reivindica — em particular a **reivindicação 2** (ninguém isola o não-determinismo a seed fixa). A questão decisiva, agora explicitamente na tarefa do agente: **em algum ponto eles fixam a seed e ainda observam variação, e atribuem a causa a atômicos ou a ordem de execução em GPU?** Se a resposta for sim, a reivindicação 2 cai.
+
+Isto é exatamente o caso em que a disciplina manda escrutínio maior, porque a leitura confortável — "é 4DGS dinâmico, é outro objeto" — é a que interessa ao trabalho. **Nada sobre a distinção em quatro dimensões pode ser afirmado até que os trechos literais de v3 sejam lidos.**
+
+Arquivos em `/tmp/orig3dgs/` (fora do repositório, não versionados): HTML e texto extraído das cinco versões, mais o conversor. Se a máquina for reiniciada, `/tmp` é limpo e o download precisa ser refeito — **se o resultado for usado no texto, transcrever os trechos literais para o fichamento antes disso.**
+
+## 2026-09-21 — Busca de originalidade concluída: **a reivindicação de quantificação caiu**
+
+Relatório da segunda execução do agente `originalidade-3dgs`. **Verifiquei de forma independente os dois achados decisivos** nos arquivos em `/tmp/orig3dgs/`, porque obrigam a reescrever o `PLANO.md` e porque um relatório que derruba uma reivindicação central não deve ser aceito sem conferência. Ambos confirmados; um erro de contagem do agente encontrado e corrigido.
+
+### Achado 1 — NerfBaselines v2: novo, grave, e ninguém no projeto tinha lido
+
+**KULHANEK, Jonas; SATTLER, Torsten. *NerfBaselines: Consistent and Reproducible Evaluation of Novel View Synthesis Methods*. arXiv:2406.17345.** v1 de 2024-06-25; **v2 de 2025-10-29**, corrente. Venue "NeurIPS 2025 D&B" consta **apenas do comentário dos autores** no arXiv, sem registro independente e sem DOI — `nao verificado` para efeito ABNT.
+
+Conferido por mim no HTML bruto, linha 240 do texto extraído da v2:
+
+> *"We also report the standard deviation computed over four independent trainings of each method."*
+
+Valores na Tabela 2, para o conjunto do TCC (Mip-NeRF 360): 3DGS `27,43 ± 0,02` (protocolo P1) e `27,68 ± 0,03` (P2); gsplat `27,41 ± 0,02` e `27,68 ± 0,02`.
+
+**A mudança entre versões, que é o ponto:**
+
+| | v1 (2024-06-25) | v2 (2025-10-29) |
+|---|---|---|
+| `standard deviation` | **0** ocorrências | **2** ocorrências |
+| `seed` (qualquer forma) | **1** — *"For all methods, we fix random seeds to match the official implementations."* | **0** |
+
+Contagens minhas, sobre o HTML bruto, não sobre o texto extraído. **A v2 acrescentou dispersão entre execuções e apagou a declaração de seed fixa.** O protocolo de seed da v2 é, portanto, **indeterminado no artigo**.
+
+**Consequência:** se aquelas quatro execuções herdaram o comportamento declarado na v1, então NerfBaselines já mediu dispersão entre execuções **a seed fixa, em 3DGS estático, no Mip-NeRF 360**, e publicou. Isso derrubaria a reivindicação de isolamento a seed fixa por inteiro. **O artigo não permite decidir.**
+
+### Achado 2 — FreeTimeGS++ v3: as quatro distinções se sustentam, mas duas estão mais estreitas
+
+**LEE, Lucas Yunkyu; KIM, Soonho; KIM, Youngwook; KIM, Sangmin; PARK, Jaesik. *FreeTimeGS++: Secrets of Dynamic Gaussian Splatting and Their Principles*. arXiv:2605.03337.** v1 2026-05-05, v2 2026-05-29, **v3 2026-07-01**. Preprint, sem venue e sem DOI.
+
+- **Objeto (4DGS dinâmico):** sustenta-se.
+- **Causa atribuída:** sustenta-se **com folga**. Contagem do agente de `atomic|nondetermin|determinis|floating.point|float32|associat|bitwise` nas três versões: v1=0, v2=0, v3=1, e essa única é falso positivo (*"temporal scale associated with duration"*). A atribuição deles é literalmente *"small stochastic differences"* — não investigadas.
+- **Intervenção fotométrica:** sustenta-se. *"affine color correction (CC) module which acts as a training-time stabilizer that absorbs photometric variation."*
+- **Seed fixa × variável: sustenta-se, mas ESTREITADA.** Eles variam a seed (`run r` usa `seed S+r`, base 0 — o agente teve de recuperar do HTML porque o `strip` come as fórmulas). **Mas fixam a inicialização e declaram isolar uma fonte**, o que conferi literalmente: *"we fix the initialization and repeat optimization under the same protocol."* Logo o contraste real é "seed fixa" × "seed variável **com inicialização fixa**", não "sem nenhum isolamento". Escrever a versão forte expõe o Cap. 1 a uma objeção de dez segundos.
+
+**A deriva entre versões é o risco vivo.** `run-to-run` aparece 3 vezes em v1, 3 em v2 e **10** em v3. O enunciado do "Secret 5" mudou de registro: v1 dizia *"Flexibility introduces instability, making reconstruction poorly repeatable"* — afirmação sobre o objeto; v3 diz *"Single-run scores can hide run-to-run variation"* — afirmação sobre a **prática de reporte**, que é a tese metodológica deste TCC aplicada a 4DGS. N deles subiu de 6 para 10 execuções. **Monitorar este arXiv ID até o depósito:** uma v4 que fixe seed ou investigue causa numérica custaria duas reivindicações de uma vez.
+
+### Erro do agente, encontrado na conferência — e é erro de método, não de aritmética
+
+O agente reportou **9** ocorrências de `run-to-run` em v3 e, ao notar divergência da contagem anterior (10), **ofereceu uma explicação elaborada** — que a contagem de 10 "provavelmente contou também a legenda da Figura 5 com capitalização diferente ou uma ocorrência em `<math>`".
+
+Conferi: são **10**, por `grep -o` e por `grep -c`. A contagem do agente estava errada e a explicação era racionalização de um erro próprio.
+
+É pequeno no conteúdo e grande no método: é **exatamente** o padrão que este projeto já pagou caro — diagnóstico emitido com confiança acima da evidência, em vez de reverificação. Registrado aqui porque o mesmo agente será usado de novo e porque a lição vale para mim também.
+
+### Defesa técnica que o relatório menciona mas não explora, e que é a melhor disponível
+
+NerfBaselines agrega **no nível de dataset**: linha 239, *"we show the PSNR averaged over all scenes of the Mip-NeRF 360 dataset"*. Portanto o `± 0,02` é o desvio da **média sobre nove cenas**, não de uma cena.
+
+**Inferência minha, a verificar antes de usar no texto, e não dado deles:** se as cenas fossem independentes, o desvio por cena seria da ordem de `0,02 × √9 = 0,06 dB` — mesma ordem do IQR de D0 medido aqui (0,0507 dB). Ou seja, a medição deles **não contradiz** a deste trabalho, e plausivelmente a corrobora; e a agregação por dataset **comprime** a dispersão que o TCC mede por cena. Isto é defesa legítima e é também argumento metodológico próprio: reportar σ de média de cenas esconde a dispersão por cena. **Não escrever como se fosse número deles.**
+
+### O que muda no PLANO, e o que não muda
+
+**Cai:** a afirmação de que o fenômeno "nunca foi quantificado publicamente". Dois trabalhos quantificam com estatística declarada, mais o VkSplat com IC de 90%. Somados, a novidade do aparato estatístico é **fina**.
+
+**Fica em suspenso:** o isolamento a seed fixa, até o protocolo de seed da v2 do NerfBaselines ser resolvido.
+
+**Sobrevive, e com as contagens a favor:** **mecanismo, ablação e intervenção.** Zero menções a atômicos, não-determinismo ou associatividade nos dois trabalhos ameaçadores. Nenhuma proposta de treino determinístico encontrada. `harry7557558/vksplat` reconfirmado em **0 issues e 0 PRs** (`total_count: 0` na API do GitHub).
+
+**Consequência de escopo, e ela reforça decisão já tomada:** o centro de gravidade do trabalho deve se deslocar explicitamente para **D4 e a escada de ablação**. É onde as buscas dão zero, é onde há código autoral, e é o que nenhum dos dois trabalhos toca. A §2.1.5 do `PLANO.md` já apontava o eixo 2 como contribuição principal; agora há evidência externa para isso.
+
+### Correção a um dado que o PLANO já registra, a verificar
+
+`PLANO.md` §2.1.3 atribui ao relato de 45 execuções da issue #89 hiperparâmetros alterados *"(`percent_dense=1e-5`)"*. O agente afirma que **o corpo da issue não contém `1e-5`**, e que o que há é menção a alteração de `position_lr`, `scaling_lr`, `lambda_dssim` e `percent_dense`, com discussão de `0,01` contra `0,1`. **Não conferi de forma independente** — fica como pendência. Enquanto não resolvido, remover o número do texto e dizer apenas "hiperparâmetros alterados, incluindo `percent_dense`".
+
+O agente registra também que o autor da #89 **atribuiu a causa errado** — a *split* da densificação e à escolha aleatória de câmera, nada de atômicos — e que declarava seed fixa, com PSNR de 24,23 a 28,06 em 45 execuções. Se confirmado, é argumento a favor do TCC: o fenômeno era conhecido e **mal atribuído**.
+
+### A busca continua incompleta — a ressalva do §2.5 permanece obrigatória
+
+Não consultados: **IEEE Xplore, ACM DL, Eurographics Diglib, OpenReview** (não tentados, por orçamento de contexto — não há evidência de inacessibilidade). **Semantic Scholar** deu `HTTP 429`. **DBLP** está atrás de muro anti-bot Anubis com prova de trabalho em JavaScript. Também pendentes: HAL/Zenodo para a lacuna 3; 8 dos 11 PRs com "deterministic" não revisados; reverificação das citações literais da issue #2996 e do PR #970, ambas de peso no Cap. 2; e o survey **`Advanced3DGS` não foi localizado nem refutado** — não se conseguiu confirmar que existe obra com esse nome.
+
+**Nota operacional útil:** o agente tentou paralelizar com subagentes e falhou — subagentes rodam com `network deny` e não conseguem usar `webfetch`, embora a sessão principal consiga. Não repetir a tentativa.
+
+### Duas referências a acrescentar ao fichamento
+
+Conferido: `FreeTimeGS|NerfBaselines|2605.03337|2406.17345` dá **zero** ocorrências no `fichamento.md` atual. Ambas precisam entrar, e o agente sugere um eixo novo — "trabalhos que reportam dispersão" — que é o que a lacuna 2 de fato exige. Registrar na entrada do NerfBaselines a **diferença v1/v2 quanto à seed**, porque é o dado que decide a reivindicação.
+
+### Ação de maior retorno, pendente de decisão do aluno
+
+Perguntar a Jonáš Kulhánek, por issue no repositório do NerfBaselines ou por e-mail, **se as quatro execuções da Tabela 2 usaram seeds fixas ou variadas**. É uma pergunta de uma linha que decide a reivindicação central do trabalho. Alternativa sem contato: o NerfBaselines é código aberto — inspecionar se o *runner* semeia por execução.
+
+
+
+
+
 ## Estado em 2026-09-21 — ponto de entrada para sessão nova
+
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
 
@@ -578,16 +856,26 @@ Plano completo em `../pivo-reprodutibilidade-3dgs/pre-registro.md` §10.
 
 - **Pré-registro estágio 1** commitado em `879dc8751e9c3d229506028600998840f24bb227`, cobrindo D0 a D3. **Desvio declarado** do teste estatístico em `aa79cf9`.
 - **Escada de cinco degraus** implementada e travada em commits no fork `github.com/fabio-gabriel/vksplatTCC`, branch `tcc-base`, com tags `D0`–`D3`. SHAs em `pre-registro.md` §3.1.
-- **80 execuções medidas:** N=20 em cada um de D0, D1, D2, D3.
-- **H1 confirmada de forma categórica: 80 execuções, 80 hashes distintos.** Sobrevive a D1, o que elimina a explicação mundana do embaralhamento não semeado.
-- **H2 sustentada** sobre D0: 14,2% dos pares com |ΔPSNR| ≥ 0,10 dB, contra critério de 5%.
+- **80 execuções medidas:** N=20 em cada um de D0, D1, D2, D3. **Conferido por evidência em 2026-09-21** (contagem de diretórios, manifestos e reexecução da análise).
+- **H1 confirmada de forma categórica: 80 execuções, 80 hashes distintos.** Sobrevive a D1, o que elimina a explicação mundana do embaralhamento não semeado. Reconferido em 2026-09-21.
+- **H2 sustentada** sobre D0: 14,2% dos pares com |ΔPSNR| ≥ 0,10 dB, contra critério de 5%. Reconferido em 2026-09-21.
 - **Custo do determinismo medido:** D3 é 14% mais lento que D2.
 - Dados, manifestos de hash e logs versionados em `pivo-reprodutibilidade-3dgs/dados/<degrau>/`.
 - **Plano completo de D4** em `pre-registro.md` §10, com o conjunto exato de mudanças.
 
 ### Em andamento
 
-- Ciclo **N=30** nos quatro degraus, ~11h de máquina, sem supervisão.
+- **Ciclo N=30 nos quatro degraus: confirmado pelo aluno em 2026-09-21 como NÃO executado ainda.** Vai rodar na noite de 2026-09-21. A linha anterior deste caderno o registrava como "em andamento", o que era projeção e não estado — corrigido. **A máquina está hoje em kernel `7.0.0-31`, e isso condiciona o sequenciamento: ver abaixo.**
+
+### Defeito de dados aberto — decidir antes de ampliar N
+
+**D3 não é série homogênea:** `run000`–`run009` sob kernel `7.0.0-30-generic` (2026-09-09, boot `-1`), `run010`–`run019` sob `7.0.0-31-generic` (2026-09-20/21, boot `0`). D0, D1 e D2 são homogêneos em `-30` e **no mesmo boot**. Medianas dos dois blocos de D3 diferem só 0,0033 dB, mas o IQR quase dobra — indistinguível de ruído com N=10, e portanto **não afirmável em nenhum dos dois sentidos**. **Restringir D3 ao bloco homogêneo está proibido sem desvio declarado**, precisamente por ser o recorte favorável.
+
+**Gravidade rebaixada em 2026-09-21, por evidência:** o `dpkg.log` mostra que **nenhum pacote Mesa/Vulkan/libdrm mudou** na janela — o RADV foi o mesmo nas 80 execuções. A diferença entre os blocos de D3 é **somente o kernel**. E o dano não atinge as hipóteses sustentadas: D0 é 20/20 homogêneo, logo **H2 está limpa**; H1 é imune por construção; a heterogeneidade está confinada a D3, que entra nas H3.x, nenhuma das quais se sustentou. Ver a entrada "Histórico de pacotes lido".
+
+**Consequência para a série de ampliação, a decidir ANTES de disparar:** rodar `run020`–`run029` nos quatro degraus deixaria D0/D1/D2 com 20 execuções em `-30` e 10 em `-31`, e D3 com 10 em `-30` e 20 em `-31` — proporção de ambiente diferindo entre degraus. Rodar nos quatro simetricamente é melhor que rodar em alguns, porque dilui a assimetria em vez de aprofundá-la. Fator novo: `libc6` e `python3.12` mudaram em 2026-09-21 06:36, portanto o bloco de ampliação difere dos 80 anteriores também nisso.
+
+**Lacuna de instrumentação: resolvida para séries futuras** — `run_degree.sh` grava `ambiente.json` com kernel, `boot_id`, Mesa, Vulkan, libdrm, libc6 e python por execução. Execuções até `D3/run019` seguem sem esse registro.
 
 ### Bloqueado — caminho crítico
 
@@ -608,7 +896,18 @@ Ordem de execução, em `pre-registro.md` §10.7:
 
 ### Pendências de texto
 
-Nenhum capítulo escrito. Acrescentar Efron e Tibshirani ao fichamento (o bootstrap não se ancora em Hoefler e Belli). Duas buscas de originalidade por frase exata e o survey `Advanced3DGS` não consultados. Decidir formato ABNT para citar comentário de issue de repositório. Registrar o SHA-256 do asset da Slang.
+**Prioridade alta, criada em 2026-09-21 pela busca de originalidade:**
+
+1. **Reescrever `PLANO.md` §2.1.1, §2.1.5 e §2.5** — a afirmação de que o fenômeno não foi quantificado caiu, e o posicionamento face ao NerfBaselines deixou de ser honesto para a v2.
+2. **Resolver o protocolo de seed do NerfBaselines v2.** Decide a reivindicação de isolamento a seed fixa. Caminhos: perguntar a Jonáš Kulhánek, ou inspecionar o *runner* no código aberto.
+3. **Acrescentar NerfBaselines e FreeTimeGS++ ao fichamento** — hoje com zero ocorrências lá. Sugerido eixo novo, "trabalhos que reportam dispersão".
+4. **Monitorar arXiv:2605.03337 até o depósito.** A deriva v1→v3 vai na direção da tese deste TCC.
+5. **Reverificar as citações literais** da issue #2996 e do PR #970 — são de peso no Cap. 2 e não foram reconferidas em fonte primária nesta sessão.
+6. Conferir se `percent_dense=1e-5` está mesmo na issue #89; se não, remover o número do `PLANO.md` §2.1.3.
+
+**Anteriores:** acrescentar Efron e Tibshirani ao fichamento (o bootstrap não se ancora em Hoefler e Belli). Decidir formato ABNT para citar comentário de issue de repositório. Registrar o SHA-256 do asset da Slang. Survey `Advanced3DGS` **não localizado nem refutado** — pode ser que a anotação do fichamento esteja errada.
+
+**Nenhum capítulo escrito.**
 
 ### Pendência institucional
 
@@ -620,3 +919,15 @@ Nenhum capítulo escrito. Acrescentar Efron e Tibshirani ao fichamento (o bootst
 - Que o tema é **inédito**. A busca de originalidade está incompleta.
 - Que `-fp-mode fast` "autoriza reassociação" — a documentação do Slang não diz isso.
 - Que Ubuntu 26.04 está fora da matriz do ROCm. É falso, e já custou uma reinstalação de sistema.
+- Que os 20 runs de **D3** são execuções nominalmente idênticas entre si. **Não são:** metade correu sob kernel `7.0.0-30` e boot `-1`, metade sob `7.0.0-31` e boot `0`.
+- Que a atualização de kernel entre os blocos de D3 **alterou** a dispersão — nem que **não** alterou. N=10 por bloco não decide.
+- Que o **Mesa/RADV** mudou em algum momento das 80 execuções. **Não mudou** — `dpkg.log` não registra nenhuma transação de `mesa-*`, `libvulkan*`, `libdrm*` ou `libgl*` na janela, e o inventário de 2026-08-25 ancora `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.2`.
+- Que a atualização de `libc6` de 2026-09-21 06:36 afeta as métricas. É **hipótese plausível** pela libm no caminho do PyTorch de CPU, e não foi testada.
+- Que o ciclo **N=30** foi executado. Confirmado pelo aluno em 2026-09-21 como ainda não executado.
+- Que as 80 execuções já medidas correram sob ambiente congelado. **O congelamento é de 2026-09-21 e não retroage.**
+- Que o fenômeno **nunca foi quantificado publicamente**. Caiu em 2026-09-21: NerfBaselines v2 reporta σ sobre quatro treinos independentes de 3DGS e gsplat no Mip-NeRF 360; FreeTimeGS++ v3 reporta média ± σ sobre dez execuções.
+- Que **todo trabalho que reporta dispersão varia a seed**. **Indeterminado.** O protocolo de seed do NerfBaselines v2 não é declarado, e a v1 afirmava fixar seeds.
+- Que **nenhum trabalho isola o não-determinismo**. FreeTimeGS++ isola a inicialização explicitamente: *"we fix the initialization and repeat optimization under the same protocol."*
+- Que *"eles mostraram que o protocolo compromete a comparabilidade; este trabalho mostra que, mesmo com protocolo idêntico, a execução também compromete"*. **Não vale para a v2 do NerfBaselines, que mostra as duas coisas.** Reescrever `PLANO.md` §2.1.5.
+- Que FreeTimeGS++ se distingue deste TCC nas quatro dimensões pretendidas **na formulação forte**. Objeto, causa e intervenção sustentam-se; a dimensão de seed está **estreitada** e precisa ser redigida como "seed fixa × seed variável com inicialização fixa".
+- Que `percent_dense=1e-5` consta do corpo da issue #89. **Contestado e não reconferido.**
