@@ -176,8 +176,30 @@ Conforme `PLANO.md` §3.5. **Não-paramétrico por decisão a priori**, porque H
 | Nível de confiança | **α = 0,05** |
 | Diagnóstico de normalidade | Shapiro-Wilk + Q-Q plot, em apêndice, apenas para documentar que a suposição foi checada |
 | Outliers | **não remover.** Se inevitável: Tukey 1,5×IQR, com o número de removidos reportado por experimento |
-| Comparação entre degraus | CIs não sobrepostos; Kruskal-Wallis; tamanho de efeito |
+| Comparação entre degraus | ~~CIs não sobrepostos; Kruskal-Wallis; tamanho de efeito~~ **CORRIGIDO — ver §5.2** |
 | Agregação entre cenas | **não se aplica** — uma cena, e por decisão não se agrega PSNR em dB entre cenas |
+
+### 5.2 Desvio declarado — teste de comparação entre degraus
+
+**Data: 2026-09-09. Especificado ANTES de ser computado; a ordem é verificável no histórico do git.**
+
+**O erro.** O plano estatístico original mandava comparar degraus por **intervalos de confiança da mediana não sobrepostos** e por **Kruskal-Wallis**. Ambos testam **localização** — se as medianas diferem. Mas H3.1 a H3.4 não afirmam nada sobre localização: afirmam que a **dispersão** diminui de um degrau para o seguinte. Os testes especificados são, em princípio, incapazes de estabelecer a afirmação que o trabalho faz, e nenhum aumento de N corrige isso. É erro de especificação, não de execução.
+
+**Confirmação empírica de que a mediana não é o canal relevante:** em N=20, as medianas dos degraus D0, D1 e D2 ficam entre 27,3614 e 27,3849 dB — variação de 0,023 dB, dentro da própria dispersão intra-degrau — enquanto os IQRs vão de 0,0331 a 0,0507. As intervenções mexem em escala, não em posição.
+
+**Substituição, fixada aqui antes de qualquer cálculo:**
+
+| Item | Decisão |
+|---|---|
+| Teste de homogeneidade de escala | **Fligner-Killeen**, não-paramétrico e robusto a não-normalidade, sobre os quatro (ou cinco) degraus e também par a par |
+| Estimativa de efeito | **IC 95% bootstrap percentílico sobre a razão de IQRs** entre degraus consecutivos, com 10.000 reamostragens |
+| Estatística descritiva de dispersão | IQR como principal; amplitude e desvio absoluto mediano (MAD) como secundários |
+| Nível | α = 0,05, inalterado |
+| Critério de H3.x | a hipótese do degrau é **sustentada** se Fligner-Killeen rejeitar homogeneidade **e** o IC bootstrap da razão de IQRs excluir 1,0 na direção de redução; **refutada** caso contrário |
+
+**Ressalva de ancoragem:** o *bootstrap* **não** pode ser justificado por Hoefler e Belli, que o exclui explicitamente do escopo (*"More advanced statistical techniques such as bootstrap are beyond the scope of our work"*). A justificativa metodológica vem de Efron e Tibshirani, e a referência precisa ser adicionada ao fichamento antes do Cap. 4.
+
+**Honestidade sobre a força deste desvio.** Este teste é especificado após a coleta de D0–D3 em N=10 e de D0–D2 em N=20, e depois de eu ter observado as estatísticas descritivas de dispersão dessas séries. Não foi computado nenhum teste de escala antes desta especificação. Ainda assim, isto é **mais fraco** que um pré-registro limpo, e a monografia deve declarar exatamente isso — inclusive que a direção esperada do efeito já era conhecida quando o teste foi escolhido. Registrar a limitação é o que a torna tolerável; omiti-la seria o problema.
 
 ### 5.1 Regra de parada e N
 
