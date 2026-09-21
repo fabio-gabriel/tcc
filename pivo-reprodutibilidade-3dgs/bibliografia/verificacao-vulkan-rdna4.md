@@ -212,3 +212,40 @@ Duas observações. A técnica *transpose-by-swapping A/B* que a AMD descreve é
 6. **Buscar literatura fora do arXiv** (ACM DL, IEEE Xplore, Eurographics DL, Scopus).
 7. **Capturar as URLs** dos três artigos WMMA do GPUOpen.
 8. **Reproduzir o crash do ExecuTorch** em RADV/gfx1201, ou confirmar que não ocorre.
+
+
+---
+
+## 12. Correções de 2026-09-21 — toolchain Slang
+
+### 12.1 `-fp-mode fast` — afirmação minha que não se sustenta na documentação
+
+Em passagens anteriores deste arquivo eu afirmei que `-fp-mode fast`, usado pelo `compile_shaders.py` do VkSplat, **"autoriza reassociação"** de ponto flutuante. **A documentação oficial do Slang não diz isso.**
+
+O que a referência de linha de comando da tag `v2026.2.1` diz, literalmente, é: *"Allow optimizations that may change results of floating-point computations. Prefer the fastest version of special functions supported by the target."* E, para o contraste, `precise`: *"Disable optimization that could change the output of floating-point computations, including around infinities, NaNs, denormalized values, and negative zero."*
+
+Reassociação é hipótese plausível do que `fast` habilita, **não fato documentado**. Afirmá-la como documentada é exatamente o tipo de citação que a disciplina de método do projeto proíbe.
+
+**Como resolver, e vale um parágrafo forte:** compilar um dos shaders com `-fp-mode fast` e com `-fp-mode precise`, e comparar o SPIR-V emitido — procurando `FPFastMathMode` e a ausência de `NoContraction` nos decorators. Isso transforma conjectura em evidência própria, custa minutos, e é diretamente relevante a um trabalho sobre reprodutibilidade numérica.
+
+### 12.2 Fonte de divergência não controlada que não estava no protocolo
+
+O `slangc` tem a opção **`-denorm-mode-fp32 <any|preserve|ftz>`**, cujo **default é `any`** — documentado como *"The mode used is **implementation defined**"*.
+
+O `compile_shaders.py` do VkSplat **não fixa** essa opção. Portanto o tratamento de denormais nos shaders é, por construção, definido pela implementação. Num trabalho sobre reprodutibilidade numérica isso é uma fonte de divergência **não controlada e não atribuível**.
+
+**Ação:** fixar explicitamente (`preserve` ou `ftz`) e declarar no pré-registro, ou — se preferir medir o artefato como distribuído — documentar que o VkSplat deixa o modo livre, e que isso é limitação declarada. Escolher uma das duas antes de D4.
+
+### 12.3 Metadados verificados da toolchain
+
+| Campo | Valor | Fonte |
+|---|---|---|
+| Repositório | `shader-slang/slang` | api.github.com, acesso 2026-09-21 |
+| Licença | Apache-2.0 **WITH LLVM-exception** (a API reporta `NOASSERTION` por causa da exceção, não por ausência) | `/license` |
+| Tag a usar | **`v2026.2.1`**, publicada 2026-02-12, commit `ae33f43e4c23c683895888b997150a7a2a1c9161` | `/releases/tags/v2026.2.1` |
+| Asset Linux | **`slang-2026.2.1-linux-x86_64.tar.gz`**, 70.742.686 bytes | idem |
+| Autocontido | Sim. Inclui `slangc`, biblioteca compartilhada e `slang.h`. **Não exige Vulkan SDK** — o backend SPIR-V é interno (`-emit-spirv-directly` é o default) | README da tag |
+| Release mais recente | `v2026.18`, de 2026-09-15 — cerca de 30 releases à frente. A ABI **não é estável**, e o SPIR-V emitido não será o mesmo. **Pinar `2026.2.1`** | `/releases` |
+| apt | **Não existe.** Busca por conteúdo em `packages.ubuntu.com` para `slangc` em noble não retorna nada. ⚠️ O pacote apt chamado `slang` é a **S-Lang**, biblioteca de terminal sem relação — conflito atestado pelo próprio `docs/building.md` do Slang | packages.ubuntu.com |
+
+**Não verificado:** layout interno do tarball (se o executável está em `bin/slangc` — inferência, não confirmação); SHA-256 do asset, obtenível no campo `assets[].digest` do mesmo endpoint e que **deve ser registrado no pré-registro**; dependências de runtime (glibc mínima); e se `-O` isolado, sem nível, é aceito — a referência só documenta a forma `-O<level>`.

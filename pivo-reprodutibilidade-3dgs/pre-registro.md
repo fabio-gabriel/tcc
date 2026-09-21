@@ -274,3 +274,82 @@ A regra que sustenta isso: **a lista de hashes fica no git, o volume fica onde c
 - Alteração de α, `k`, `N_min`, `N_max` ou da largura-alvo após observação de resultados.
 - Descarte de execuções por qualquer motivo que não os acima — descartes precisam ser contados e justificados.
 - Árvore de trabalho suja (`vksplat_dirty` não vazio no `env.json`) durante uma série medida.
+
+---
+
+## 10. Adendo do estágio 2 — plano de implementação de D4 (RASCUNHO, ainda não vinculante)
+
+> **Estado: rascunho.** Torna-se vinculante quando os parâmetros de escala forem fixados a partir da medição de §10.3 e este adendo for commitado. Base: auditoria de código de 2026-09-21 no commit `b3ad2b0`.
+
+### 10.1 O achado que redefine o escopo de D4
+
+Ponto fixo nos 9 sítios de `_ATOMIC_ADD`, isoladamente, **não** entrega bit-identidade — por duas razões, ambas verificadas no código:
+
+1. **O escalonador sorteia entre implementações.** Em AMD, entre `PerSplat` e `Tensor_0_8_8`. As duas agrupam os termos de forma diferente **antes** do atômico, e essas reduções parciais são **em ponto flutuante**. Tornar a soma final associativa não faz as somas parciais coincidirem entre implementações.
+2. **Dentro de cada implementação há pré-redução em float antes do atômico.** No `per_pixel` via `WaveActiveSum`; no `tensor` via `reduce_splats` em memória compartilhada. **A exceção é o `per_splat`:** ali a pré-redução é acumulação sequencial em registrador, com ordem fixada pelo laço, e portanto determinística.
+
+**Consequência, e ela valida o desenho cumulativo da escada:** como **D2 já fixa a implementação em `PerSplat`**, e D4 é cumulativo sobre D2, converter **apenas** o `per_splat` é suficiente para fechar a bit-identidade. Isso não é atalho — é controle experimental. Comparar "atômico float" contra "ponto fixo" enquanto o escalonador sorteia pipelines misturaria duas fontes de variação.
+
+**A dependência D2 → D4 deve ser declarada explicitamente no texto:** o patch de D4 cobre uma única das três variantes de backward, e isso só é válido porque D2 é cumulativo. Removido D2, D4 fica incompleto.
+
+### 10.2 Conjunto de mudanças — 4 arquivos Slang, **zero C++**
+
+| # | Arquivo | Mudança |
+|---|---|---|
+| 1 | `slang/config.slang` | constantes de escala **por componente**; macro `_ATOMIC_ADD_FIXED` sobre `buffer.InterlockedAdd(byteAddress, uint)`; helper de desescala |
+| 2 | `slang/alphablend_shader_bwd_per_splat.slang` | os 9 sítios, em bloco único |
+| 3 | `slang/fused_projection_backward_optimizer.slang` | 3 bindings (5/6/7) e 3 leituras; o helper `read_t3_float3` precisa de variante inteira ou de desenrolar a leitura |
+| 4 | `slang/default.slang`, fase `UpdateState` | 1 binding e 1 leitura de `v_xy_vs` |
+
+**Por que zero C++:**
+
+- Os três buffers são `RWByteAddressBuffer` nos produtores e `Buffer<float>` no C++. Como `sizeof(float) == sizeof(int32_t)`, os **mesmos bytes** podem ser acumulados como inteiro **sem realocar nada**.
+- O zeramento por passo é `vkCmdFillBuffer(..., 0)`: **zero bytes é simultaneamente `0.0f` e `int32_t(0)`.** Não muda valor, tamanho nem barreira. É o ponto mais barato do plano.
+- O readback Python continua funcionando com `.view(np.int32)`.
+
+### 10.3 A medição que precede tudo — e **não exige código nenhum**
+
+O binding Python **já expõe** os três buffers de gradiente como numpy: `module.v_xy_vs` `(N,2)`, `module.v_inv_cov_vs_opacity` `(N,4)`, `module.v_rgb` `(N,3)`. Também `module.tiles_touched` e `module.radii`. Portanto **a magnitude dos gradientes e a distribuição de K são mensuráveis hoje, sem tocar em C++ nem em Slang, e sem depender da toolchain Slang.**
+
+Colher, e registrar no adendo antes de implementar:
+
+- Histograma **por componente separadamente** — 2 de `xy`, 3 de cônica, 1 de opacidade, 3 de cor. As unidades diferem e quase certamente exigem escalas diferentes.
+- **Mínimo não-nulo e máximo absoluto**, não só média — são eles que fixam bits fracionários e risco de estouro.
+- Evolução **ao longo do treino**: a distribuição muda com `step`, com `active_sh` crescendo de 0 a 3, e com a densificação.
+- Distribuição de **K** (tiles por gaussiana), para o orçamento de estouro.
+
+Ponto de leitura: após `rasterize_backward()`. Note que `copyFromDevice` sincroniza o pipeline — irrelevante para instrumentação.
+
+### 10.4 Orçamento de estouro — e a ausência de atômico de 64 bits
+
+**Não existe atômico inteiro de 64 bits em nenhum lugar do repositório.** A macro `USE_EMULATED_INT64` **não tem relação com atômicos** — é emulação de armazenamento e aritmética — e nunca é acionada pelo build. Logo não há infraestrutura reaproveitável para acumulador maior que 32 bits: as alternativas seriam duas somas de 32 bits com propagação de carry, sem precedente no repositório, ou atômico 64 nativo, exigindo estender a detecção de features em C++. **Dimensionar a escala para caber em `int32` com margem.**
+
+Termos somados por acumulador: `K × A`, com `A = 1` no `per_splat` — mas `A ∈ {8, 16, 32}` nas outras variantes, o que é outro argumento para fixar `per_splat`. E **não há limite dedicado de tiles por gaussiana**: `K ≤ grid_width × grid_height`, com *clamp* apenas contra o grid. Uma gaussiana grande e opaca pode cobrir a tela toda.
+
+Ponto de partida analítico para a escala: o gradiente que entra no backward já vem dividido por `3·W·H` (`executeComputeSSIMGradient` fixa `(1 - ssim_lambda)/(3·w·h)`), o que é da ordem de 1e-7 por pixel-canal em imagem de ~1 MP.
+
+### 10.5 A consequência que mais importa cientificamente
+
+**Adam é invariante a fator de escala global no gradiente** — numerador e denominador escalam juntos, até `eps = 1e-15` deixar de ser desprezível. Isso é favorável: erro de escala uniforme é absorvido pelo consumidor principal.
+
+**Mas `default.slang` não é invariante.** A fase `UpdateState` calcula `grad = 0.5 * length(v_xy_vs[gid] * float2(width, height))`, e esse valor alimenta um **teste de limiar** em `ComputeGrowMask`: `is_grad_high = grad > uniforms.grow_grad2d`, com `grow_grad2d = 0.0002`. Não há normalização que absorva a escala.
+
+Ou seja: **o erro de quantização do ponto fixo propaga diretamente para a decisão de duplicar ou dividir gaussianas.** Se o quantum for grosso demais, D4 muda o número de primitivas — e o número de gaussianas é um dos observáveis do trabalho. Isto precisa ser medido e declarado, e é o candidato mais provável a fazer D4 trocar determinismo por qualidade.
+
+### 10.6 Risco técnico não mitigado
+
+**Não existe, em nenhum `.slang` do repositório, uma chamada `InterlockedAdd` inteira sobre `RWByteAddressBuffer`.** A intervenção estreia essa API, e nenhum `.spv` versionado contém precedente. Se o `slangc` não emitir SPIR-V válido para ela, D4 exige outro desenho. **É o principal risco técnico em aberto, e é verificável em minutos assim que a toolchain estiver em disco** — compilar um shader mínimo e inspecionar com `spirv-dis`.
+
+### 10.7 Ordem de execução
+
+1. Medir magnitude e distribuição de K via Python — **gratuito, sem código, independente da Slang**.
+2. Verificar que `slangc` emite SPIR-V válido para `InterlockedAdd` inteiro em `RWByteAddressBuffer`.
+3. Fixar as escalas por componente e commitar este adendo como vinculante.
+4. Implementar, compilar shaders, commitar como degrau D4 com SHA registrado em §3.1.
+5. Rodar a série e verificar **bit-identidade** por hash.
+
+### 10.8 Itens a fixar também no adendo
+
+- **`-denorm-mode-fp32`**: o `slangc` tem essa opção com default `any`, documentado como *"implementation defined"*, e o `compile_shaders.py` **não a fixa**. Num trabalho sobre reprodutibilidade numérica isso é fonte de divergência não controlada. Fixar explicitamente, ou declarar como limitação do artefato tal como distribuído.
+- **SHA-256 do asset da Slang** (`assets[].digest` no endpoint da release), para o ambiente ser reproduzível.
+- Comportamento em **saturação**: contar e reportar, em vez de saturar silenciosamente.

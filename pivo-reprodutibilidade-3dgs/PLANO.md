@@ -121,29 +121,37 @@ A dispersão intra-configuração de PSNR é **maior ou igual ao menor delta de 
 *Limiar, fixado a partir de levantamento de 2026-08-26 (ver `bibliografia/fichamento.md` §Eixo A e a tabela de deltas):* **0,10 dB**. No regime canônico do Mip-NeRF 360, trabalhos de sistemas e eficiência reportam ganhos de **0,03 a 0,20 dB** — gsplat declara paridade com +0,05 dB e apresenta features de +0,03, +0,11 e +0,18 dB; Mip-Splatting reporta +0,09 dB contra o próprio 3DGS retreinado. Reformulações algorítmicas reais ficam em outra faixa (3DGS-MCMC: +0,59 dB), e ganhos ≥1 dB vêm de mudar o regime, degradar o baseline ou trocar de dataset.
 *Calibração disponível:* 3DGS-MCMC publicou σ de PSNR sobre 3 execuções **com seed variável** no Mip-NeRF 360 — **0,0276 dB** (init SfM) e **0,0524 dB** (init aleatória), em nível de dataset. A dispersão a seed **fixa** medida por este trabalho deve ser **menor** que esses valores; se não for, isso é achado.
 
-**H3a — A acumulação atômica em ponto flutuante é a fonte residual do não-determinismo.**
-Após eliminadas as demais fontes identificadas (ordem de visitação de imagens e seleção de kernel por latência), a dispersão remanescente entre execuções idênticas é atribuível à acumulação atômica em `float32` no backward de rasterização. Substituí-la por acumulação associativa (atômicos inteiros em ponto fixo) leva a dispersão a zero.
-*Refutada se:* a dispersão persistir após a intervenção — o que indicaria fonte adicional não identificada (candidato conhecido: reordenação Morton, ver §7) e passaria a ser o achado.
+**H3 — atribuição das fontes de não-determinismo.**
+
+> **Atenção (2026-09-09): a formulação vinculante de H3 está em `pre-registro.md` §6, não aqui.**
+> Aquele documento está commitado e travado; este é o enquadramento. Em divergência quanto a hipóteses ou protocolo, **o pré-registro prevalece**.
+>
+> A auditoria de 2026-09-02 mostrou que a reordenação Morton é uma **quarta** fonte, independente e a montante do backward. A escada passou de quatro para **cinco** degraus, e H3 foi desdobrada em **H3.1 a H3.4**, uma por degrau, cada uma com refutação própria. A formulação anterior, que atribuía o resíduo diretamente à acumulação atômica em um único degrau D3, **nasceria refutada** — ver §2.3.1.
 
 **H3b — Repetibilidade não implica estabilidade.**
 Ainda que a intervenção torne as execuções repetíveis, o treino permanece **instável**: uma perturbação mínima e controlada na condição inicial produz divergência da mesma ordem de magnitude que a dispersão medida em H1.
 *Refutada se:* a perturbação mínima produzir divergência substancialmente menor que a dispersão de H1.
-*Teste:* injetar alteração de **um bit** em um parâmetro inicial e repetir o treino.
+*Teste:* injetar alteração de **um bit** em um parâmetro inicial e repetir o treino, a partir da configuração de D4.
 
 > **Por que H3b existe.** Summers e Dinneen (2021, arXiv:2103.04514) reportam que *"even one-bit changes in initial parameters result in models converging to vastly different values"*. Se o treino é intrinsecamente instável, tornar o atômico determinístico deixa o resultado *repetível* sem torná-lo *robusto*. A distinção entre **reprodutibilidade** e **estabilidade** precisa estar explícita no texto; H3b é o teste que a separa.
 
 ### 2.3.1 Escada de ablação — o desenho que substitui a hipótese única
 
-A auditoria do código do VkSplat em 2026-08-26 (commit `b3ad2b0`) identificou **três** fontes de não-determinismo, não uma. Isso permite trocar uma hipótese monolítica por uma **escada de ablação**, em que cada degrau é uma intervenção controlada com desfecho previsto — desenho consideravelmente mais forte.
+Duas auditorias de código do VkSplat, no commit `b3ad2b0`, identificaram **quatro** fontes de não-determinismo. Isso permite trocar uma hipótese monolítica por uma **escada de ablação** de cinco degraus, em que cada degrau é uma intervenção controlada com desfecho previsto.
+
+> **Os SHAs, os patches exatos e o procedimento de execução estão em `pre-registro.md` §3.1 e §3.2.** A tabela abaixo é resumo; aquele documento é o vinculante.
 
 | Degrau | Intervenção | Fonte eliminada | Dispersão prevista |
 |---|---|---|---|
 | **D0** | nenhuma (baseline *as-is*) | — | máxima; soma de todas as fontes |
-| **D1** | semear `random.shuffle` (`simple_trainer.py:203-208`, onde `random.seed(step)` está **comentado**) | ordem de visitação das imagens de treino | menor que D0 |
-| **D2** | `RASTERIZE_BACKWARD_USE_SCHEDULING 0` (`src/config.h:24`) + recompilar | seleção de kernel por latência medida | menor que D1 |
-| **D3** | acumulação em ponto fixo com atômicos inteiros nos 9 sítios de `_ATOMIC_ADD` | acumulação `float32` não-associativa | **zero**, se H3a se sustentar |
+| **D1** | semear `random.shuffle` em `simple_trainer.py` | ordem de visitação das imagens de treino | menor que D0 |
+| **D2** | `RASTERIZE_BACKWARD_USE_SCHEDULING 0` em `src/config.h:24` | seleção de kernel de backward por latência medida | menor que D1 |
+| **D3** | `#if 1`→`#if 0` nas duas chamadas a `executeMortonSorting` em `src/gs_trainer.cpp` | **reordenação Morton** — 6 atômicas em `float32` na fase `ComputeStats`, mais a variabilidade de permutação | menor que D2 |
+| **D4** | acumulação em ponto fixo com atômicos inteiros nos 9 sítios de `_ATOMIC_ADD` de `slang/alphablend_shader_bwd_per_splat.slang` | acumulação `float32` não-associativa no backward | **zero**, se H3.4 se sustentar |
 
-Cada degrau é uma medição de N execuções. O resíduo em D2 é a **contribuição isolada das atômicas** — e é a quantidade que nenhum trabalho localizado mediu.
+**Por que a formulação anterior nasceria refutada.** Até 2026-09-02 a escada tinha quatro degraus, com o ponto fixo em D3 e nenhum tratamento do Morton. A auditoria mostrou que a fase `ComputeStats` de `morton_sort.slang` acumula média e variância das posições com `InterlockedAddF32` entre workgroups, e que a quantização subsequente é **função degrau** — logo uma diferença no último bit muda a chave Morton de qualquer gaussiana próxima de fronteira de voxel, mudando a permutação do array inteiro e, com ela, o padrão de colisão das atômicas do backward. É fonte **independente e a montante**: intervir só no backward não produziria execuções bit-idênticas.
+
+Cada degrau é uma medição de N execuções. O resíduo em D3 é a **contribuição isolada das atômicas do backward** — e é a quantidade que nenhum trabalho localizado mediu.
 
 **Consequência importante para a originalidade:** o VkSplat reporta 5 execuções com IC de 90%, mas a auditoria mostra que essas execuções **não podem ter sido repetições a seed fixa** — o lado GPU é sempre semeado com `42` (`gs_trainer.cpp:127`), enquanto o embaralhamento em Python não é semeado. Logo o IC publicado por eles mistura estocasticidade de ordem de dados com não-determinismo de execução. O eixo 1 deste trabalho **não é replicação** do que eles fizeram.
 
@@ -377,15 +385,40 @@ Janela: 2026-08-26 → 06/nov/2026, **10 semanas e 2 dias**. Zero folga.
 | **Zero papers lidos** das 62 entradas do fichamento antigo, e a triagem descartou 27 | Cap. 2 e 3 sem base | A bibliografia do tema novo precisa ser construída: reprodutibilidade em ML, determinismo em GPU, aritmética de ponto flutuante não-associativa, prática de reporte em 3DGS |
 | **Janela de 10 semanas e 2 dias, após três reenquadramentos em uma semana** | Depósito atrasa | Cortes de §4 são escopo-base; hard-cap na semana 1; escrita começa na semana 2 e não espera o experimento |
 
-## 9. Estado atual (2026-08-26)
+## 9. Estado atual (2026-09-09)
 
-- **Nada escrito** de monografia. **Nada executado** de pipeline.
-- Ambiente: Ubuntu 24.04.4, kernel HWE `7.0.0-30`, RX 9070 XT (`gfx1201`) confirmada pelo RADV, Mesa 25.2.8, `vulkan-tools` instalado. Toolchain de build **em instalação**. Usuário ainda fora de `render`/`video`.
-- Instrumentação de potência disponível via `sysfs`/hwmon, embora não seja mais métrica deste tema.
-- `VK_KHR_cooperative_matrix` presente (revision 2) — não é mais objeto do trabalho, mas os achados coletados sobre a superfície de API estão preservados em `bibliografia/verificacao-vulkan-rdna4.md` e permanecem citáveis.
-- **Verificado sobre o VkSplat:** treina 3DGS do zero; pede `VK_API_VERSION_1_2` (compatível com o loader 1.3.275); requer `VK_EXT_subgroup_size_control` e `VK_EXT_shader_atomic_float`; lê **somente** COLMAP; emite `train.json`/`eval.json` com breakdown por estágio; publicado em Eurographics 2026 Short Papers (DOI 10.2312/egs.20261024); `pushed_at` 2026-08-21; **0 issues** desde a criação; testado até RX 7800 XT (RDNA 3).
-- **Verificado sobre o `taichi-ngp-renderer`:** só inferência, sem treino. Fora deste tema.
-- Bibliografia do tema novo: **a construir**.
+> **Ponto de entrada para sessão nova:** a seção final de `../experimentos/caderno-de-campo.md`, intitulada **"Estado em 2026-09-09 — para retomada em sessão nova"**. Ela é mantida atualizada e lista feito, em andamento, bloqueado e pendente. Esta seção resume.
+
+### Experimento
+
+- **Pré-registro estágio 1 commitado** em `879dc8751e9c3d229506028600998840f24bb227`, cobrindo D0 a D3. Desvio declarado do teste estatístico commitado em `aa79cf9`.
+- **80 execuções medidas concluídas:** N=20 em cada um dos degraus D0, D1, D2 e D3. Ciclo N=30 em andamento.
+- **H1 confirmada de forma categórica: 80 execuções, 80 hashes de `splat.ply` distintos.** Zero repetição em qualquer degrau. H1 **sobrevive a D1**, o que elimina a explicação mundana do embaralhamento não semeado.
+- **H2 sustentada** sobre D0: 14,2% dos pares com |ΔPSNR| ≥ 0,10 dB em N=20, contra critério de ≥ 5%.
+- **Nenhuma H3.x sustentada em N=20.** Fligner-Killeen rejeita homogeneidade só em D0 vs D3 (p = 0,034), e o IC bootstrap da razão de IQRs inclui 1,0 em todos os pares. Diagnóstico: falta de poder — razão de dispersões é estatística faminta de dados.
+- Dispersão de PSNR por degrau, IQR: D0 0,0507 · D1 0,0331 · D2 0,0442 · D3 0,0214.
+- **Custo do determinismo medido:** D3 é **14% mais lento** que D2 (942,4 s contra 826,3 s), por perda do *coalescing* que a reordenação Morton provê.
+- **Anomalia aberta:** D2 tem mais dispersão que D1 (razão de IQR 1,335), persistente de N=10 a N=20. Se sobreviver a N=50, exige explicação.
+- Dados e manifestos de hash versionados em `dados/<degrau>/`. Scripts: `../run_degree.sh`, `../coleta_serie.sh`, `../analise_dispersao.py`.
+
+### Caminho crítico
+
+**D4** — acumulação em ponto fixo. É o experimento decisivo: se produzir hashes idênticos, a dispersão é **exatamente zero**, resultado categórico que dispensa teste e dissolve o problema de poder dos degraus intermediários. Dois pré-requisitos:
+
+1. **Toolchain Slang, verificada em 2026-09-21:** tag `v2026.2.1`, asset `slang-2026.2.1-linux-x86_64.tar.gz`, 70.742.686 bytes, em `github.com/shader-slang/slang/releases`. Binário autocontido, **não exige Vulkan SDK**. Não existe em apt — e cuidado, o pacote apt chamado `slang` é a **S-Lang**, biblioteca de terminal sem relação.
+2. **Medir a magnitude típica dos gradientes** nos 9 sítios, para fixar bits fracionários, faixa dinâmica e saturação. Vai ao adendo do estágio 2 do pré-registro, antes de D4 rodar.
+
+### Ambiente
+
+Ubuntu 24.04.4, kernel HWE `7.0.0-30`, RX 9070 XT (`gfx1201`), Mesa 25.2.8, RADV, loader Vulkan de instância 1.3.275. `shaderBufferFloat32AtomicAdd` **nativo**, sem emulação por CAS. Toolchain de build completo, venv em `~/code/tcc/.venv`, PyTorch de CPU.
+
+### Texto
+
+**Nenhum capítulo escrito.** Bibliografia com 24 referências verificadas em fonte primária, nenhuma lida integralmente exceto Hoefler e Belli (2015). Pendências: acrescentar Efron e Tibshirani ao fichamento; duas buscas de originalidade por frase exata; survey `Advanced3DGS` não consultado; decidir formato ABNT para citar comentário de issue de repositório.
+
+### Institucional
+
+**O Prof. Gilvan não foi informado de nenhum dos quatro reenquadramentos.** É o risco mais malcoberto do projeto e não depende de nada técnico.
 
 ## 10. Materiais
 

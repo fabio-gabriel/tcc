@@ -394,3 +394,229 @@ A condição de execução (`step % config.refine_every == 0`) é **mais frouxa*
 ### Não verificado
 
 `buffer.cpp`; encadeamento de passes de `executeSort` no host; `upsweep.comp` e `spine.comp` do radix sort; e a **magnitude empírica** com que a divergência de `stats` se converte em chaves Morton distintas — que é justamente o que o degrau D3 vai medir.
+
+---
+
+## 2026-09-02 — Pré-registro, estágio 1, commitado
+
+- **Commit `879dc8751e9c3d229506028600998840f24bb227`** no repositório do TCC. Protocolo de D0 a D3 travado: configuração, grandezas, plano estatístico, critérios de refutação, política de retenção.
+- Estágio 2 (degrau D4) deixado como rascunho, por depender da toolchain Slang e da medição de magnitude dos gradientes.
+- **Fork:** `github.com/fabio-gabriel/vksplatTCC`, branch `tcc-base`, com `upstream` em `harry7557558/vksplat`. Licença Apache-2.0.
+
+| Degrau | SHA | Patch |
+|---|---|---|
+| D0 | `3a5c0d97a6790e07ebd011a116d4d016c957ab9f` | apenas harness, nenhuma ablação |
+| D1 | `4cb921a82f686c68578978bdeb215057935ae048` | `random.seed(step)` descomentado |
+| D2 | `b395759efaeff12846aca49af1e8c9ca1aab02ac` | `RASTERIZE_BACKWARD_USE_SCHEDULING 0` |
+| D3 | `d222c47182f5917be0cc209f19d3257e1ebad17e` | `#if 1`→`#if 0` nas duas chamadas a `executeMortonSorting` |
+
+- **Armadilha registrada em `pre-registro.md` §3.2:** o `.so` compilado não é versionado (`*.so` no `.gitignore`), logo `git checkout` de outro degrau **não troca o binário**. Mitigação: `run_degree.sh` recompila **incondicionalmente** após cada checkout. É o modo de falha silencioso do protocolo.
+
+## 2026-09-08 — Depuração do harness: quatro tentativas até a checagem de dispositivo funcionar
+
+Registrado porque é caso exemplar da regra de método do projeto, e porque o desperdício foi real: **cada tentativa custou ~15 min**, já que a checagem roda no fim da execução.
+
+| Tentativa | Padrão | Resultado | Causa |
+|---|---|---|---|
+| 1 | `grep -q 'Using device \[0\]'` | falhou | barra invertida perdida na colagem; `[0]` virou classe de caracteres em BRE |
+| 2 | `grep -qF 'Using device [0]'` | falhou | `-F` correto, mas os bytes reais não são os supostos |
+| 3 | extração por `tr -dc '0-9'` | falhou, retornou `00` | ver abaixo |
+| 4 | limpa ANSI, então extrai | **funciona** | — |
+
+**Causa raiz, revelada por `cat -A`:** a linha é literalmente
+
+```
+Using device [^[[0m0^[[m]$
+```
+
+O índice vem embrulhado em **códigos de escape ANSI** (`ESC[0m` … `ESC[m`). O VkSplat colore a saída — coerente com `printf("\033[91m%s\033[m\n", ...)` em `src/config.h`. A extração por dígitos capturava o `0` de `[0m` **e** o índice, produzindo `00`.
+
+**Lições registradas:**
+
+1. **Nunca casar string formatada de saída de programa.** Extrair valor, limpando ANSI antes.
+2. **`cat -A` primeiro.** As três primeiras tentativas foram chutes; a quarta veio de olhar os bytes.
+3. **Os logs do VkSplat contêm ANSI.** Qualquer análise que leia log, e não JSON, tem de limpar. Princípio adotado: **o log arquivado permanece bruto** — é o registro primário; a limpeza acontece na leitura.
+4. O canal de transferência por colagem estava **removendo caracteres** (barras invertidas e asteriscos). Solução adotada: transferência pelo git, com `sha256sum` conferido nas duas pontas.
+
+### Execuções descartadas
+
+Quatro execuções completas de ADC foram produzidas antes do harness estar válido e **não contam como dado**: a de 2026-09-01 (`log2.txt`) e três de 2026-09-08. Descarte declarado para que a contagem de execuções do TCC não fique inflada. Sinal que já apareceu nelas e antecipou H1: gaussianas de 5.767.196 a 5.874.753 (amplitude 1,8%) e PSNR de 27,36 a 27,40.
+
+## 2026-09-08/09 — Séries D0 a D3 executadas, N=20 por degrau
+
+Orquestradas por `run_degree.sh`, em **blocos intercalados de 10**. Dados em `pivo-reprodutibilidade-3dgs/dados/<degrau>/`, com `manifest.tsv` de hashes.
+
+**Decisão de sequenciamento (2026-09-09):** a ordem dos degraus **não** está pré-registrada. Adotados blocos intercalados de 10 em vez de completar um degrau por vez, por dois motivos: dá atribuição cedo, e evita confundir o efeito do degrau com fatores que variem no tempo (carga, deriva térmica). É a recomendação de Hoefler e Belli — não alinhar o que não se consegue fixar.
+
+### H1 — **confirmada de forma categórica**
+
+**80 execuções, 80 hashes de `splat.ply` distintos.** 20 em cada degrau, zero repetição em qualquer um. Não é resultado estatístico: é identidade bit a bit, e falhou 80 de 80.
+
+**O ponto mais importante é que H1 sobrevive a D1.** Com `random.seed(step)` ativo, a ordem de visitação das imagens é determinística — e o modelo continua diferente em toda execução. Isso **elimina a explicação mundana** ("é só o embaralhamento não semeado"), que era a objeção mais previsível em banca. O não-determinismo é intrínseco ao pipeline.
+
+E sobrevive a D2 e D3. Com seed fixa, kernel fixo e Morton desligado, ainda há 20 modelos distintos em 20 execuções. **Resta a acumulação atômica em `float32` do backward — alvo de D4.**
+
+### Dispersão por degrau, PSNR, N=20
+
+| | mediana | IQR | MAD | amplitude | pares ≥ 0,10 dB | tempo (mediana) |
+|---|---|---|---|---|---|---|
+| **D0** baseline | 27,3614 | 0,0507 | 0,0280 | 0,1905 | **27/190 = 14,2%** | 833,7 s |
+| **D1** +seed | 27,3849 | 0,0331 | 0,0119 | 0,1303 | 6/190 = 3,2% | 836,7 s |
+| **D2** +kernel fixo | 27,3803 | 0,0442 | 0,0201 | 0,1803 | 16/190 = 8,4% | 826,3 s |
+| **D3** +sem Morton | 27,3900 | **0,0214** | **0,0091** | 0,0882 | 0/190 = 0,0% | **942,4 s** |
+
+IQR de gaussianas: D0 37.813; D1 18.909; D2 15.799; D3 17.377.
+
+### H2 — sustentada
+
+Estatística pré-registrada: **fração de pares com |ΔPSNR| ≥ 0,10 dB, sobre D0**. Resultado **17,8% em N=10 e 14,2% em N=20**, contra critério de ≥ 5%. **H2 sustentada.**
+
+A escolha da fração de pares em vez da amplitude se justificou: a amplitude de D0 subiu de 0,1626 para 0,1905 dB ao dobrar N — como previsto, porque amplitude não é estimador estável — enquanto a fração ficou na mesma ordem.
+
+**Contexto que dá peso:** o limiar de 0,10 dB veio do levantamento de 2026-08-26. O gsplat declara **paridade** com o 3DGS a +0,05 dB e apresenta features com +0,03, +0,11 e +0,18 dB; o Mip-Splatting reporta +0,09 dB contra seu próprio 3DGS retreinado. **A dispersão entre execuções idênticas do código como distribuído excede esses ganhos publicados.**
+
+### Verificações de sanidade
+
+- Commits uniformes por degrau, conferidos via `env.json`.
+- Escalonador em D0 e D1: `PerSplat` 29.463–29.465, `Tensor_0_8_8` 535–537 — **notavelmente estáveis**, confirmando a expectativa pré-registrada de efeito pequeno em D2. Em D2 e D3, contagens **0/0**, confirmando que o patch funcionou.
+- A mediana de PSNR varia só 0,029 dB entre os quatro degraus, dentro da dispersão intra-degrau. **As intervenções mexem em escala, não em posição** — exceto D3, que paga em tempo.
+
+### Custo do determinismo: D3 é 14% mais lento
+
+942,4 s contra 826,3 s de D2. Desligar o Morton destrói o *coalescing* que ele existe para prover — `src/config.h` comenta *"reordering for better memory colaescing"*.
+
+**Observação de engenharia, candidata a trabalhos futuros ou a degrau extra:** desligar o Morton é a forma **ingênua** de obter determinismo. Tornar determinística apenas a fase `ComputeStats`, com 6 atômicas, provavelmente custaria perto de zero e preservaria a localidade. Técnicas em Demmel e Nguyen; Collange et al.
+
+## 2026-09-09 — Erro no plano estatístico, desvio declarado, e resultado dos testes
+
+### O erro
+
+O `pre-registro.md` §5, commitado em `879dc87`, mandava comparar degraus por **CIs da mediana não sobrepostos** e **Kruskal-Wallis**. Ambos testam **localização**. Mas H3.1 a H3.4 afirmam redução de **dispersão**. Os testes especificados são incapazes, em princípio, de estabelecer a afirmação do trabalho, e nenhum aumento de N corrige. **Erro de especificação, não de execução.**
+
+Confirmação empírica de que a mediana não é o canal: medianas diferem em 0,029 dB entre degraus, dentro da dispersão intra-degrau, enquanto os IQRs vão de 0,0214 a 0,0507.
+
+### O desvio declarado
+
+Commit `aa79cf9`, **antes** de qualquer teste de escala ser computado — ordem verificável no histórico. Registrado em `pre-registro.md` §5.2.
+
+Substituição: **Fligner-Killeen** mais **IC 95% bootstrap percentílico da razão de IQRs**, 10.000 reamostragens, seed `20260909`. Critério: sustentada se Fligner rejeitar **e** o IC excluir 1,0.
+
+Ressalvas registradas: o bootstrap **não** se ancora em Hoefler e Belli, que o exclui do escopo — justificativa vem de Efron e Tibshirani, ainda a acrescentar ao fichamento. E o desvio é **mais fraco que pré-registro limpo**, porque foi especificado após observar as descritivas; a monografia deve declarar isso, inclusive que a direção esperada já era conhecida.
+
+### Resultado: nenhuma H3.x sustentada em N=20
+
+| Comparação | Fligner-Killeen | razão de IQR | IC 95% bootstrap | Veredito |
+|---|---|---|---|---|
+| D0 vs D1 | p = 0,353 | 0,654 | [0,199 – 2,340] | não sustentada |
+| D1 vs D2 | p = 0,586 | **1,335** | [0,431 – 3,918] | não sustentada |
+| D2 vs D3 | p = 0,055 | 0,484 | [0,194 – 1,452] | não sustentada |
+| **D0 vs D3** | **p = 0,034, rejeita** | 0,422 | [0,158 – 1,496] | **não sustentada** (IC inclui 1,0) |
+
+Global nos quatro: p = 0,159, não rejeita.
+
+O caso D0 vs D3 é instrutivo: o Fligner **rejeita**, mas o bootstrap inclui 1,0, e o critério é conjuntivo. Um critério disjuntivo daria outro resultado — mas o critério escrito é o que vale.
+
+### Diagnóstico de poder e projeção
+
+Razão de dispersões é estatística faminta de dados: os ICs abrangem um fator de dez, e `[0,199 – 2,340]` não distingue "metade da dispersão" de "o dobro".
+
+Projetando pela contração em ~1/√N, de 20 para 50:
+
+- **D0 vs D3** iria de `[0,16 – 1,50]` para algo como `[0,21 – 0,85]` — **excluiria 1,0**.
+- **D0 vs D1** iria para `[0,40 – 1,07]` — marginal, provavelmente inconclusivo.
+
+**Expectativa registrada antes de rodar N=50: o efeito cumulativo deve se estabelecer; a atribuição passo a passo provavelmente não.** Consequência do desenho, a constar como limitação.
+
+### Por que D4 dissolve o problema de poder
+
+Se D4 produzir **hashes idênticos**, a dispersão não é "menor" — é **exatamente zero**. Resultado categórico, como H1, sem necessidade de teste, e vale mais que qualquer IC de razão de IQR alcançável com 50 amostras. **D4 é o experimento decisivo do trabalho, não mais um degrau entre outros.**
+
+### Item aberto: a anomalia de D2
+
+**D2 tem mais dispersão que D1** — razão de IQR 1,335 — e persistiu de N=10 para N=20. Fisicamente estranho: D2 remove uma fonte em relação a D1. Candidatos: ruído de amostragem, o mais provável dado o IC `[0,431 – 3,918]`; ou algo não compreendido no escalonador. **Se sobreviver a N=50, deixa de ser ruído e exige explicação** — e seria achado por si.
+
+## 2026-09-21 — Duas auditorias: toolchain Slang e mapeamento de D4
+
+### Slang: metadados verificados e duas correções a afirmações minhas
+
+Detalhamento em `../pivo-reprodutibilidade-3dgs/bibliografia/verificacao-vulkan-rdna4.md` §12.
+
+- **Tag `v2026.2.1`**, asset `slang-2026.2.1-linux-x86_64.tar.gz`, 70.742.686 bytes. Binário autocontido; **não exige Vulkan SDK** — o backend SPIR-V é interno, `-emit-spirv-directly` é o default. Licença Apache-2.0 WITH LLVM-exception.
+- **Não existe em apt.** ⚠️ E o pacote apt chamado `slang` é a **S-Lang**, biblioteca de terminal sem relação — conflito atestado pelo próprio `docs/building.md` do Slang.
+- A release mais recente é `v2026.18`, ~30 releases à frente, e a ABI **não é estável**. **Pinar `2026.2.1`**, que é a versão com que o VkSplat foi testado.
+- **Correção 1:** eu afirmei que `-fp-mode fast` "autoriza reassociação" de ponto flutuante. **A documentação oficial não diz isso** — diz apenas *"may change results"* e *"prefer the fastest version of special functions"*. Reassociação é hipótese plausível, não fato documentado. Resolve-se com experimento próprio: compilar com `fast` e com `precise`, e comparar o SPIR-V procurando `FPFastMathMode` e ausência de `NoContraction`. Barato, e daria um parágrafo forte.
+- **Correção 2, mais séria:** o `slangc` tem `-denorm-mode-fp32` com **default `any`**, documentado como *"implementation defined"*, e o `compile_shaders.py` **não a fixa**. É fonte de divergência numérica **não controlada** que não estava no protocolo. Fixar ou declarar como limitação, antes de D4.
+
+### D4: ponto fixo isolado **não** entrega bit-identidade — mas o desenho cumulativo salva
+
+Achado central da auditoria de mapeamento. Duas razões:
+
+1. O escalonador sorteia entre implementações, e elas agrupam os termos de forma diferente **antes** do atômico, em somas parciais **em float**.
+2. Dentro de cada implementação há pré-redução em float: `WaveActiveSum` no `per_pixel`, `reduce_splats` em memória compartilhada no `tensor`. **A exceção é o `per_splat`**, onde a pré-redução é acumulação sequencial em registrador, com ordem fixada pelo laço, logo determinística.
+
+**Como D2 já fixa a implementação em `PerSplat` e D4 é cumulativo sobre D2, converter apenas o `per_splat` fecha a bit-identidade.** O desenho cumulativo da escada, adotado por outra razão, resolveu este problema por acidente — mas a **dependência D2 → D4 precisa ser declarada no texto**: o patch cobre uma de três variantes, e isso só é válido porque D2 é cumulativo.
+
+### O que destrava a medição hoje, sem depender da Slang
+
+**O binding Python já expõe os três buffers de gradiente como numpy** — `module.v_xy_vs`, `module.v_inv_cov_vs_opacity`, `module.v_rgb` — além de `module.tiles_touched` e `module.radii`. Portanto a magnitude dos gradientes e a distribuição de K (tiles por gaussiana) são **mensuráveis sem uma linha de código novo**. A hipótese de que isso exigiria mudança em C++ estava errada, e para melhor: a medição pode começar antes de a toolchain chegar.
+
+### Fatos que o plano de D4 herdou
+
+- **Zero mudanças em C++.** Os buffers são `RWByteAddressBuffer` nos produtores e `Buffer<float>` no C++; como `sizeof(float) == sizeof(int32_t)`, os mesmos bytes viram inteiro sem realocar. E o zeramento por passo é `vkCmdFillBuffer(..., 0)` — **zero bytes é ao mesmo tempo `0.0f` e `int32_t(0)`**.
+- **Não existe atômico de 64 bits em nenhum lugar do repositório.** `USE_EMULATED_INT64` não tem relação com atômicos e nunca é acionada. A escala tem de caber em `int32`.
+- **Não há precedente de `InterlockedAdd` inteiro sobre `RWByteAddressBuffer`** em nenhum `.slang` nem nos `.spv` versionados. Se o `slangc` não emitir SPIR-V válido para isso, D4 exige outro desenho. **Principal risco técnico em aberto**, verificável em minutos com a toolchain em disco.
+- **Segundo consumidor que eu não conhecia:** `default.slang`, fase `UpdateState`, lê `v_xy_vs` e alimenta um **teste de limiar** contra `grow_grad2d = 0.0002`. Adam é invariante a escala global; **este consumidor não é**. Logo o erro de quantização do ponto fixo **propaga direto para a decisão de duplicar/dividir gaussianas** — e o número de gaussianas é um dos observáveis do trabalho. É o candidato mais provável a fazer D4 trocar determinismo por qualidade.
+- **Não há limite dedicado de tiles por gaussiana**: `K ≤ grid_width × grid_height`, com *clamp* só contra o grid.
+
+Plano completo em `../pivo-reprodutibilidade-3dgs/pre-registro.md` §10.
+
+## Estado em 2026-09-21 — ponto de entrada para sessão nova
+
+> Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
+
+### Feito
+
+- **Pré-registro estágio 1** commitado em `879dc8751e9c3d229506028600998840f24bb227`, cobrindo D0 a D3. **Desvio declarado** do teste estatístico em `aa79cf9`.
+- **Escada de cinco degraus** implementada e travada em commits no fork `github.com/fabio-gabriel/vksplatTCC`, branch `tcc-base`, com tags `D0`–`D3`. SHAs em `pre-registro.md` §3.1.
+- **80 execuções medidas:** N=20 em cada um de D0, D1, D2, D3.
+- **H1 confirmada de forma categórica: 80 execuções, 80 hashes distintos.** Sobrevive a D1, o que elimina a explicação mundana do embaralhamento não semeado.
+- **H2 sustentada** sobre D0: 14,2% dos pares com |ΔPSNR| ≥ 0,10 dB, contra critério de 5%.
+- **Custo do determinismo medido:** D3 é 14% mais lento que D2.
+- Dados, manifestos de hash e logs versionados em `pivo-reprodutibilidade-3dgs/dados/<degrau>/`.
+- **Plano completo de D4** em `pre-registro.md` §10, com o conjunto exato de mudanças.
+
+### Em andamento
+
+- Ciclo **N=30** nos quatro degraus, ~11h de máquina, sem supervisão.
+
+### Bloqueado — caminho crítico
+
+**D4.** É o experimento decisivo: se produzir hashes idênticos, a dispersão é **exatamente zero**, resultado categórico que dispensa teste e dissolve o problema de poder dos degraus intermediários.
+
+Ordem de execução, em `pre-registro.md` §10.7:
+
+1. **Medir magnitude dos gradientes e distribuição de K.** **Não exige código nem a toolchain Slang** — `module.v_xy_vs`, `module.v_inv_cov_vs_opacity`, `module.v_rgb`, `module.tiles_touched` e `module.radii` já são expostos como numpy. **Pode começar imediatamente.**
+2. Baixar a Slang `v2026.2.1` e verificar que o `slangc` emite SPIR-V válido para `InterlockedAdd` inteiro sobre `RWByteAddressBuffer` — **risco técnico não mitigado, sem precedente no repositório**.
+3. Fixar as escalas por componente e commitar o adendo do estágio 2.
+4. Implementar (4 arquivos Slang, zero C++), commitar como D4, registrar o SHA.
+5. Rodar a série e verificar bit-identidade por hash.
+
+### Não estabelecido, e é limitação a declarar
+
+- **Nenhuma H3.x sustentada em N=20.** Fligner-Killeen só rejeita em D0 vs D3 (p = 0,034), e o IC bootstrap da razão de IQRs inclui 1,0 em todos os pares. Projeção: em N=50 o efeito **cumulativo** deve se estabelecer; a atribuição passo a passo provavelmente não.
+- **Anomalia aberta:** D2 tem mais dispersão que D1 (razão de IQR 1,335), persistente de N=10 a N=20. Se sobreviver a N=50, exige explicação.
+
+### Pendências de texto
+
+Nenhum capítulo escrito. Acrescentar Efron e Tibshirani ao fichamento (o bootstrap não se ancora em Hoefler e Belli). Duas buscas de originalidade por frase exata e o survey `Advanced3DGS` não consultados. Decidir formato ABNT para citar comentário de issue de repositório. Registrar o SHA-256 do asset da Slang.
+
+### Pendência institucional
+
+**O Prof. Gilvan não foi informado de nenhum dos quatro reenquadramentos.** É o risco mais malcoberto do projeto, e o único que não depende de nada técnico.
+
+### O que NÃO pode ser afirmado
+
+- Que o trabalho **descobre** o não-determinismo. Kerbl o reconheceu em issue pública em 2023; um mantenedor do nerfstudio o atribuiu a atômicas de ponto flutuante em 2024. A contribuição é **quantificação e atribuição**.
+- Que o tema é **inédito**. A busca de originalidade está incompleta.
+- Que `-fp-mode fast` "autoriza reassociação" — a documentação do Slang não diz isso.
+- Que Ubuntu 26.04 está fora da matriz do ROCm. É falso, e já custou uma reinstalação de sistema.

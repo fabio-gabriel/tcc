@@ -4,6 +4,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > Este repositório **não é um projeto de software**: é o espaço de trabalho do **TCC** (Trabalho de Conclusão de Curso) do usuário. Não há build, testes, lint ou pipeline. Tudo o que for produzido — texto, pesquisa, eventualmente código de experimentos — fica aqui.
 
+---
+
+# ⚠ LEIA ANTES DE QUALQUER COISA — O TEMA MUDOU
+
+**O restante deste arquivo descreve um tema ABANDONADO.** Ele é mantido como registro histórico. Se você está começando uma sessão agora, o tema vigente é outro.
+
+**Tema vigente (desde 2026-08-26):**
+
+> **Reprodutibilidade em treino de 3D Gaussian Splatting: dispersão entre execuções, acumulação atômica não-associativa e a comparabilidade de resultados publicados**
+
+**Fonte de verdade:** `pivo-reprodutibilidade-3dgs/`. Em qualquer divergência, aquela pasta prevalece sobre este arquivo e sobre `./PLANO.md`.
+
+## Ordem de leitura para retomar o trabalho
+
+1. **`experimentos/caderno-de-campo.md`**, seção final **"Estado em 2026-09-09 — para retomada em sessão nova"**. É o ponto de entrada: diz o que está feito, em andamento, bloqueado e pendente. Leia a seção final primeiro, depois volte ao início se precisar do histórico.
+2. **`pivo-reprodutibilidade-3dgs/CLAUDE.md`** — papel, tema, armadilhas técnicas, disciplina de método.
+3. **`pivo-reprodutibilidade-3dgs/pre-registro.md`** — **o documento mais importante.** Protocolo travado em commit, hipóteses com critério de refutação, plano estatístico, e os desvios declarados. Não alterar nada ali sem declarar desvio datado.
+4. **`pivo-reprodutibilidade-3dgs/PLANO.md`** — enquadramento científico.
+5. `pivo-reprodutibilidade-3dgs/bibliografia/` — fichamento e verificação de fatos técnicos.
+
+## Resumo de uma tela
+
+- **Pergunta:** quão reprodutíveis são as métricas de qualidade no treino de 3DGS, e o que a dispersão entre execuções idênticas implica para a comparabilidade dos resultados publicados?
+- **Mecanismo:** o backward do 3DGS acumula gradientes por adição atômica em `float32`; adição em ponto flutuante não é associativa; a ordem entre invocações de GPU não é determinística.
+- **Método:** escada de ablação de **cinco degraus** (D0 a D4) no fork `github.com/fabio-gabriel/vksplatTCC`, branch `tcc-base`, cada degrau em um commit identificável. Cena `garden` do Mip-NeRF 360, `images_4`, densificação ADC, 30.000 passos, RX 9070 XT.
+- **Resultado principal já obtido:** **H1 confirmada em 80/80** — oitenta execuções nominalmente idênticas produziram oitenta modelos com hashes distintos, em todos os degraus. **H2 sustentada** em D0: 14,2% dos pares diferem em ≥ 0,10 dB de PSNR, limiar derivado do que a literatura de 3DGS apresenta como contribuição.
+- **Caminho crítico:** o degrau **D4** (acumulação em ponto fixo com atômicos inteiros). Se produzir hashes idênticos, é resultado categórico e dissolve o problema de poder estatístico dos degraus intermediários.
+- **Estado do texto:** nenhum capítulo escrito.
+- **Pendência institucional:** o orientador, Prof. Gilvan, **não foi informado de nenhum dos quatro reenquadramentos**.
+
+## Disciplina de método — herdada e não negociável
+
+Vale para o tema novo. Veio de erros cometidos neste projeto, todos documentados no caderno de campo:
+
+1. **Verificar se a fonte foi superseded antes de citá-la.** Uma reinstalação de sistema operacional desnecessária resultou de citar página marcada com *"This page has moved!"*.
+2. **Não converter inconveniência de ambiente em evidência.** Uma dificuldade de instalação foi registrada como "evidência de imaturidade do stack" antes de qualquer verificação. Era falsa.
+3. **Exigir a saída literal antes de afirmar causa.** Três diagnósticos sucessivos de um erro de `apt` foram emitidos com confiança acima da evidência; a causa era um espaço escapado. Depois, quatro tentativas de casar uma string de log falharam até alguém rodar `cat -A` e descobrir códigos ANSI.
+4. **Separar erro do operador de defeito da plataforma.**
+5. **Escrutínio maior para achados que favorecem a tese**, não menor.
+6. **Nunca reportar média nua.** Neste TCC isso deixou de ser boa prática e passou a ser o **objeto de estudo**.
+7. **Não afirmar que uma tarefa foi executada sem tê-la executado.** Aconteceu duas vezes: uma pesquisa de fundo anunciada e não disparada, e quatro entradas de caderno de campo declaradas como registradas e não escritas.
+
+---
+
+
 ## Papel esperado
 
 Atuar como **professor orientador** do TCC. O usuário pediu explicitamente apoio para *planejar, escrever e pesquisar* — não apenas execução de tarefas pontuais. Isso significa:
