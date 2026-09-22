@@ -32,6 +32,17 @@ for RD in "$SRC"/run*/; do
     echo "AVISO: $RUN sem env.json" >&2
   fi
 
+  # ambiente.json — gravado por run_degree.sh a partir de 2026-09-21. Registra
+  # kernel, boot_id, Mesa/RADV, libdrm, libvulkan, libc6 e python. Execucoes
+  # anteriores a essa data NAO tem o arquivo, e a ausencia e esperada: por isso
+  # a mensagem e NOTA e nao AVISO, para nao poluir a saida com 80 alarmes
+  # falsos sobre a serie antiga.
+  if [ -f "$RD/ambiente.json" ]; then
+    cp "$RD/ambiente.json" "$OUT/"
+  else
+    echo "NOTA: $RUN sem ambiente.json (esperado se anterior a 2026-09-21)" >&2
+  fi
+
   for TD in "$RD"*/; do
     [ -d "$TD" ] || continue
     for f in config.json train.json eval.json; do
@@ -59,6 +70,18 @@ done
 
 [ -f "$SRC/logs/build.log" ] && cp "$SRC/logs/build.log" "$DST/"
 
+# snapshots de ambiente por serie, gravados por run_degree.sh no inicio de cada
+# invocacao. Ha um por chamada do orquestrador, com timestamp no nome, e eles
+# documentam o ambiente mesmo se uma serie abortar antes de produzir execucoes.
+# Usa 'if' e nao '[ ... ] && cp': sob 'set -e', uma lista && que falha como
+# ultimo comando do corpo do laco encerraria o script quando o glob nao casa.
+for AS in "$SRC"/logs/ambiente-serie-*.json; do
+  if [ -f "$AS" ]; then
+    cp "$AS" "$DST/"
+  fi
+done
+
 echo "coletadas $N execucoes de $DEGREE para $DST"
+echo "  com ambiente.json : $(ls "$DST"/run*/ambiente.json 2>/dev/null | wc -l | tr -d ' ')"
 echo "manifesto: $MANIFEST"
 du -sh "$DST"
