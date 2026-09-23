@@ -213,22 +213,72 @@ def main() -> int:
         return 1
 
     # --- instrumentacao, sem tocar no fork --------------------------------
-    # `simple_trainer` faz `module = vksplat.VkSplat()` (linha 121) e chama
-    # `module.train_step(image_idx, step)` no laco (linha 213). Substituimos a
-    # classe no namespace do modulo por uma subclasse que envolve train_step.
+    # `simple_trainer` importa `vksplat` DENTRO da funcao (linha 118 em D3), nao
+    # no topo do arquivo, e so entao faz `module = vksplat.VkSplat()` (linha 121)
+    # e `module.train_step(image_idx, step)` no laco (linha 213). Portanto NAO
+    # existe `st.vksplat`: uma tentativa anterior de patch por esse caminho
+    # falhou com AttributeError em 2026-09-22.
+    #
+    # O que funciona: importar `vksplat` aqui e substituir o atributo no objeto
+    # de modulo. O `import vksplat` interno de `simple_trainer` resolve por
+    # `sys.modules` e recebe o MESMO objeto, ja com a substituicao aplicada.
+    import vksplat  # type: ignore[import-not-found]
+
     registros = []
     contador = {"chamadas": 0, "medicoes": 0}
 
-    class VkSplatInstrumentado(st.vksplat.VkSplat):
+    def _envolver(chamada_original):
         def train_step(self, image_idx, step):
-            r = super().train_step(image_idx, step)
+            r = chamada_original(self, image_idx, step)
             contador["chamadas"] += 1
             if step in alvo:
                 registros.append(medir(self, step))
                 contador["medicoes"] += 1
             return r
+        return train_step
 
-    st.vksplat.VkSplat = VkSplatInstrumentado
+    # Duas estrategias, porque o comportamento de uma classe pybind11 quanto a
+    # heranca e a setattr nao e garantido e nao pode ser verificado sem o modulo
+    # compilado em maos. Tenta-se a menos invasiva primeiro.
+    estrategia = None
+    try:
+        # (a) substituir o metodo na propria classe
+        original = vksplat.VkSplat.train_step
+        vksplat.VkSplat.train_step = _envolver(original)
+        estrategia = "patch de metodo em VkSplat.train_step"
+    except (AttributeError, TypeError) as e_metodo:
+        try:
+            # (b) subclasse com o metodo definido NO CORPO da classe, nao por
+            # atribuicao posterior. Isto importa: se a classe base tiver uma
+            # metaclass que recusa setattr, a subclasse herda essa metaclass e
+            # `Sub.train_step = ...` falharia do mesmo modo que (a). Definir no
+            # corpo insere no namespace antes de o tipo ser criado, e escapa
+            # dessa restricao. Verificado em teste com stand-in em 2026-09-22.
+            base = vksplat.VkSplat
+            _orig_ts = base.train_step
+
+            class VkSplatInstrumentado(base):  # type: ignore[misc, valid-type]
+                def train_step(self, image_idx, step):
+                    r = _orig_ts(self, image_idx, step)
+                    contador["chamadas"] += 1
+                    if step in alvo:
+                        registros.append(medir(self, step))
+                        contador["medicoes"] += 1
+                    return r
+
+            vksplat.VkSplat = VkSplatInstrumentado
+            estrategia = "subclasse VkSplatInstrumentado"
+        except (AttributeError, TypeError) as e_sub:
+            print("ABORTA: nao foi possivel instrumentar `train_step`.",
+                  file=sys.stderr)
+            print(f"        patch de metodo: {e_metodo}", file=sys.stderr)
+            print(f"        subclasse      : {e_sub}", file=sys.stderr)
+            print("        Sem instrumentacao a medicao nao acontece; nao ha "
+                  "fallback silencioso.", file=sys.stderr)
+            return 3
+
+    print(f"instrumentacao ativa via: {estrategia}")
+
     st.TRAIN_DEVICE = 0  # nunca -1: evita cair no llvmpipe (armadilha 1)
 
     cfg = st.TrainerConfig()  # ADC, identica a do tcc_runner.py
