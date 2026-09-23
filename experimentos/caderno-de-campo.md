@@ -847,6 +847,126 @@ Perguntar a Jonáš Kulhánek, por issue no repositório do NerfBaselines ou por
 
 
 
+## 2026-09-22 — Premissa central de D4 **confirmada no código**, e tensão de protocolo a declarar
+
+### A confirmação
+
+Levantamento no fork, em `HEAD detached at D3`. `src/gs_renderer.cpp:345-346`, literal:
+
+```
+RASTERIZE_BACKWARD_USE_SCHEDULING ? pipeline_rasterize_backward[(size_t)scheduled_impl][buffers.is_unsorted_1] :
+    pipeline_rasterize_backward[1][buffers.is_unsorted_1],  // per-splat backward
+```
+
+Com `RASTERIZE_BACKWARD_USE_SCHEDULING` desligado — que é a intervenção de D2, e vale para tudo cumulativo depois — o pipeline é **fixo em índice `[1]`, anotado no próprio código como `per-splat backward`**.
+
+**Isto é confirmação independente da premissa em que todo o plano de D4 se apoia** (`pre-registro.md` §10.1): que converter apenas `alphablend_shader_bwd_per_splat.slang` basta para fechar bit-identidade, porque D2 já elimina o sorteio entre implementações. Antes isso vinha de auditoria de leitura; agora vem da linha que seleciona o pipeline. A dependência D2 → D4 segue tendo de ser declarada no texto, mas deixou de ser inferência.
+
+Também confirmado, em `src/python_bindings.cpp:654` e `:671`: `DEF_BUFFER_ARRAY(tiles_touched, int32_t, (size_t)(-1))` e `DEF_BUFFER_ARRAY(v_xy_vs, float, 2)` — os buffers são expostos ao Python como arrays tipados, como o §10.3 afirma. O `(size_t)(-1)` em `tiles_touched` sugere comprimento dinâmico, e o acessor pode exigir contagem explícita; **a assinatura ainda não foi vista e não se vai supor**.
+
+### Decisão de método: a medição de §10.3 será feita em D3, não em D0
+
+Registrada aqui porque muda o procedimento e não estava explícita no pré-registro.
+
+D4 é **cumulativo sobre D3**. Medir magnitude de gradientes em D0 ou D1 mediria o estado errado: com o escalonamento ativo, o número de termos somados por acumulador difere — `A = 1` no `per_splat`, `A ∈ {8, 16, 32}` nas outras variantes (§10.4) — e o orçamento de estouro sairia incorreto. D3 também desliga o Morton, o que altera a permutação e pode alterar a distribuição de K. As escalas têm de ser derivadas do estado de código que D4 modifica, e esse estado é D3.
+
+### Tensão de protocolo que precisa entrar como desvio declarado
+
+`pre-registro.md` §3.2 diz, literalmente:
+
+> *"Parâmetros de D4 a fixar antes de sua execução, em adendo datado: número de bits fracionários, faixa dinâmica assumida para os gradientes, e comportamento em saturação. Esses valores **não** podem ser escolhidos após observar a dispersão de D0–D3."*
+
+**Essa condição já não é cumprível ao pé da letra:** a dispersão de D0–D3 foi observada em N=10, N=20 e N=30 antes de qualquer parâmetro de D4 ser fixado. A ordem real dos eventos inverteu a ordem prescrita.
+
+A defesa existe e é boa, mas tem de ser **escrita e datada**, não assumida:
+
+1. As escalas serão derivadas da **magnitude dos gradientes** medida em §10.3 — grandeza física do pipeline, independente da dispersão de PSNR observada.
+2. O desfecho de D4 é **bit-identidade**, critério binário sobre hash de `splat.ply`. Não há liberdade para escolher escalas que "produzam" o resultado desejado: se o mecanismo não for determinístico, nenhuma escolha de escala gera hashes idênticos.
+3. O que uma escala mal escolhida pode fazer é **degradar qualidade** — via o consumidor não invariante a escala em `default.slang`, que alimenta o teste de limiar de densificação (§10.5). Esse é risco de qualidade, não de inflar o resultado de H3.4.
+
+Vai ao adendo do estágio 2 como desvio declarado. **Uma banca atenta compara datas; é melhor que o texto compare primeiro.**
+
+## 2026-09-22 — N=30 nos quatro degraus: **H1 em 120/120, e a escada de dispersão piorou**
+
+Série de ampliação executada na noite de 2026-09-21 sob ambiente congelado. Conferido por evidência: 30 execuções por degrau, 120 no total, commit uniforme em cada degrau e igual ao de antes.
+
+### Integridade dos dados: nada foi perdido
+
+O `coleta_serie.sh` reescreve o `manifest.tsv` do zero e só grava `sha256` se o `.ply` existir — risco de apagar os 80 hashes antigos. Backup feito antes (`manifest.tsv.bak-20260921`) e conferido depois: **zero linhas do backup ausentes do manifesto novo**, nos quatro degraus. O risco não se materializou.
+
+Correção feita no `coleta_serie.sh` antes da coleta: ele **não copiava o `ambiente.json`**. Como estava, todo o registro de ambiente instrumentado em 2026-09-21 ficaria apenas na Ubuntu. Passou a copiar o `ambiente.json` por execução e os `ambiente-serie-*.json`. Testado com *fixture* real, não só `bash -n` — e nesse teste encontrei e corrigi um defeito meu: um `[ -f ... ] && cp` como último comando do corpo de laço encerraria o script sob `set -e` quando o glob não casasse.
+
+### H1: **120 execuções, 120 hashes distintos**
+
+30/30 em cada degrau, 120 distintos no agregado. **H1 segue confirmada de forma categórica, com metade a mais de evidência.** Continua sendo o resultado mais forte do trabalho e o único que não depende de poder estatístico.
+
+### O bloco novo é perfeitamente homogêneo — a instrumentação funcionou
+
+As 40 execuções novas, pelos `ambiente.json`: **todas** em `7.0.0-31-generic`, `boot_id` `1a08d41c`, `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.2`, `libc6 2.39-0ubuntu8.9`, `python3.12 3.12.3-1ubuntu0.17`. Sem exceção nos quatro degraus.
+
+Detalhe que justifica ter registrado pacotes e não apenas `boot_id`: as 40 novas estão no **mesmo boot** que D3 `run010`–`run019`, mas com `libc6` diferente — a atualização de 2026-09-21 06:36 ocorreu dentro daquele boot. **`boot_id` sozinho não teria detectado.**
+
+Estratos de ambiente que isto cria:
+
+| Degrau | kernel −30 / boot −1 / libc 8.8 | kernel −31 / boot 0 / libc 8.8 | kernel −31 / boot 0 / libc 8.9 |
+|---|---|---|---|
+| D0, D1, D2 | 20 | — | 10 |
+| **D3** | 10 | 10 | 10 |
+
+### H2: sustentada pelo critério, mas a margem encolheu e o estimador é instável
+
+`39/435 = 9,0%` de pares com |ΔPSNR| ≥ 0,10 dB em D0, contra critério pré-registrado de ≥ 5%. **H2 sustentada.**
+
+A série histórica incomoda: **17,8% (N=10) → 14,2% (N=20) → 9,0% (N=30)**, queda monotônica rumo ao limiar.
+
+**Investiguei antes de concluir tendência, e não é tendência.** A fração de pares é uma *U-statistic* não-viesada: se as execuções viessem da mesma distribuição, seu valor esperado **não** dependeria de N. Comparando blocos de **N=10 igual**, a instabilidade fica evidente:
+
+| | bloco 1 (000–009) | bloco 2 (010–019) | bloco 3 (020–029) |
+|---|---|---|---|
+| **D0** | 17,8% | 13,3% | **0,0%** |
+| **D2** | 0,0% | **17,8%** | 0,0% |
+
+D2 oscila de 0,0% para 17,8% e volta a 0,0% **dentro do mesmo degrau**. A estatística varia de zero ao máximo observado conforme o bloco. Logo os três valores de D0 não são trajetória descendente: são três amostras de um estimador muito ruidoso, e **9,0% em N=30 é a melhor estimativa disponível**, não o ponto final de uma queda.
+
+**IC 95% bootstrap da fração, 10.000 reamostragens, seed `20260909`: `[0,9% – 18,6%]`.** Não exclui 5%. **Isto NÃO é o critério pré-registrado** — o §6 fixa o limiar de 5% sobre a fração observada, sem IC, e por esse critério H2 está sustentada. O IC entra como declaração de incerteza no texto, não como reinterpretação do critério. Acrescentá-lo ao critério agora seria alterar o protocolo depois de ver os dados.
+
+### H3.x: **nenhuma sustentada, e o resultado andou para trás**
+
+IQR de PSNR em N=30: D0 `0,0530` · D1 `0,0384` · D2 `0,0423` · D3 `0,0334`.
+
+Fligner-Killeen e IC 95% bootstrap percentílico da razão de IQRs, 10.000 reamostragens, seed `20260909`, critério conjuntivo — exatamente como fixado no desvio declarado de `pre-registro.md` §5.2:
+
+| Comparação | Fligner N=30 | (era N=20) | razão IQR N=30 | (era) | IC 95% N=30 | Veredito |
+|---|---|---|---|---|---|---|
+| D0 vs D1 | p = 0,310 | 0,353 | 0,725 | 0,654 | [0,338 – 1,756] | não sustentada |
+| D1 vs D2 | p = 0,775 | 0,586 | 1,102 | 1,335 | [0,417 – 2,514] | não sustentada |
+| D2 vs D3 | p = 0,255 | 0,055 | 0,790 | 0,484 | [0,334 – 2,019] | não sustentada |
+| **D0 vs D3** | **p = 0,0548** | **0,034** | **0,631** | **0,422** | [0,276 – 1,429] | **não sustentada** |
+
+Global nos quatro: p = 0,302, não rejeita.
+
+**O ponto desconfortável, e ele precisa constar do texto:** em N=20 o Fligner de D0 vs D3 **rejeitava** (p = 0,034); em N=30 **não rejeita** (p = 0,0548). A razão de IQRs subiu de 0,422 para 0,631 — o efeito aparente **encolheu**. Aumentar N não aproximou o resultado do critério, afastou. É o comportamento esperado quando o efeito em N=20 estava superestimado por ruído, e é precisamente por isso que a regra manda escrutínio maior sobre achados favoráveis.
+
+**A projeção de 2026-09-09 está refutada.** Ela previa que em N=50 o IC de D0 vs D3 iria para `[0,21 – 0,85]` e excluiria 1,0 — mas assumia a razão de 0,422 constante, com apenas o IC estreitando. Com razão de 0,631, refazendo a contração em 1/√N: N=50 daria algo como `[0,334 – 1,192]`, que **ainda inclui 1,0**. Excluir 1,0 exigiria **N ≈ 95 por degrau** — cerca de 380 execuções, da ordem de 90 horas de máquina. **Inviável dentro da janela até 06/nov.**
+
+### Boa notícia: a anomalia de D2 está se dissolvendo, como ruído deveria
+
+A razão de IQR D1→D2 caiu de **1,335** (N=20) para **1,102** (N=30), IC `[0,417 – 2,514]`. O candidato mais provável registrado em 2026-09-09 era ruído de amostragem, e o comportamento é o que se espera de ruído. **Não exige mais explicação física**, mas deve ser reportada como episódio, porque ilustra o risco de interpretar razão de dispersões com N pequeno.
+
+### O achado metodológico do dia, e ele é auto-referente
+
+Comparando blocos de N=10 do **mesmo** degrau, o IQR de D3 é `0,0131` / `0,0255` / `0,0477` — variação de 3,6× entre blocos. E D1 no bloco 1 tem IQR `0,0592`, **maior** que D0 no bloco 1 (`0,0449`), invertendo a ordenação que o desenho pretende medir.
+
+Ou seja: **a variabilidade da medida de dispersão entre blocos é da mesma ordem que a diferença de dispersão entre degraus.** É a razão de fundo pela qual a escada não fecha — não é só falta de N, é que o efeito buscado é pequeno em relação à variabilidade da própria estatística.
+
+É achado por si, e é elegante para o texto: **a própria medida de reprodutibilidade não é reprodutível.** O objeto de estudo reaparecendo um nível acima. Dizer com cuidado, sem retórica: o dado que sustenta é a tabela de blocos.
+
+### Consequência para o trabalho
+
+Reforça, agora com evidência quantitativa, a decisão já registrada: **D4 é o caminho crítico, e a escada de dispersão não é onde o trabalho se decide.** Se D4 produzir hashes idênticos, a dispersão é exatamente zero e o resultado é categórico, independente de poder. As H3.1–H3.4 passam a ser reportadas como **não estabelecidas por limitação de poder, com o N necessário calculado** — resultado honesto e defensável, e bem mais forte que um p = 0,0548 apresentado como "quase".
+
+**Não rodar mais execuções de D0–D3 esperando que as H3.x fechem.** A conta acima mostra que não fecham. O tempo de máquina restante vai para D4.
+
 ## Estado em 2026-09-21 — ponto de entrada para sessão nova
 
 
@@ -856,16 +976,17 @@ Perguntar a Jonáš Kulhánek, por issue no repositório do NerfBaselines ou por
 
 - **Pré-registro estágio 1** commitado em `879dc8751e9c3d229506028600998840f24bb227`, cobrindo D0 a D3. **Desvio declarado** do teste estatístico em `aa79cf9`.
 - **Escada de cinco degraus** implementada e travada em commits no fork `github.com/fabio-gabriel/vksplatTCC`, branch `tcc-base`, com tags `D0`–`D3`. SHAs em `pre-registro.md` §3.1.
-- **80 execuções medidas:** N=20 em cada um de D0, D1, D2, D3. **Conferido por evidência em 2026-09-21** (contagem de diretórios, manifestos e reexecução da análise).
-- **H1 confirmada de forma categórica: 80 execuções, 80 hashes distintos.** Sobrevive a D1, o que elimina a explicação mundana do embaralhamento não semeado. Reconferido em 2026-09-21.
-- **H2 sustentada** sobre D0: 14,2% dos pares com |ΔPSNR| ≥ 0,10 dB, contra critério de 5%. Reconferido em 2026-09-21.
+- **120 execuções medidas:** N=30 em cada um de D0, D1, D2, D3. **Conferido por evidência em 2026-09-22** (contagem de diretórios, manifestos, `ambiente.json` e reexecução da análise).
+- **H1 confirmada de forma categórica: 120 execuções, 120 hashes distintos.** Sobrevive a D1, o que elimina a explicação mundana do embaralhamento não semeado.
+- **H2 sustentada** sobre D0: 9,0% dos pares com |ΔPSNR| ≥ 0,10 dB em N=30, contra critério de 5%. Margem reduzida frente a N=20 (14,2%); ver a entrada de 2026-09-22 para por que isso não é tendência.
+- **Ambiente congelado em 2026-09-21** (`unattended-upgrades` e timers do apt mascarados). As 40 execuções de `run020`–`run029` são o primeiro bloco com ambiente registrado e homogêneo.
 - **Custo do determinismo medido:** D3 é 14% mais lento que D2.
 - Dados, manifestos de hash e logs versionados em `pivo-reprodutibilidade-3dgs/dados/<degrau>/`.
 - **Plano completo de D4** em `pre-registro.md` §10, com o conjunto exato de mudanças.
 
 ### Em andamento
 
-- **Ciclo N=30 nos quatro degraus: confirmado pelo aluno em 2026-09-21 como NÃO executado ainda.** Vai rodar na noite de 2026-09-21. A linha anterior deste caderno o registrava como "em andamento", o que era projeção e não estado — corrigido. **A máquina está hoje em kernel `7.0.0-31`, e isso condiciona o sequenciamento: ver abaixo.**
+- **Nada.** O ciclo N=30 foi executado na noite de 2026-09-21 e coletado. **Decisão tomada em 2026-09-22: não ampliar mais D0–D3** — a conta de poder mostra que as H3.x exigiriam N ≈ 95 por degrau. O tempo de máquina vai para D4.
 
 ### Defeito de dados aberto — decidir antes de ampliar N
 
@@ -891,8 +1012,10 @@ Ordem de execução, em `pre-registro.md` §10.7:
 
 ### Não estabelecido, e é limitação a declarar
 
-- **Nenhuma H3.x sustentada em N=20.** Fligner-Killeen só rejeita em D0 vs D3 (p = 0,034), e o IC bootstrap da razão de IQRs inclui 1,0 em todos os pares. Projeção: em N=50 o efeito **cumulativo** deve se estabelecer; a atribuição passo a passo provavelmente não.
-- **Anomalia aberta:** D2 tem mais dispersão que D1 (razão de IQR 1,335), persistente de N=10 a N=20. Se sobreviver a N=50, exige explicação.
+- **Nenhuma H3.x sustentada em N=30, e o resultado andou para trás.** O Fligner de D0 vs D3 **deixou de rejeitar** ao passar de N=20 (p = 0,034) para N=30 (p = 0,0548), e a razão de IQRs subiu de 0,422 para 0,631 — o efeito aparente encolheu. **A projeção de N=50 está refutada:** excluir 1,0 exigiria **N ≈ 95 por degrau**, cerca de 90 h de máquina, inviável até 06/nov. **Decisão: não ampliar mais D0–D3; o tempo vai para D4.** As H3.x serão reportadas como não estabelecidas por limitação de poder, com o N necessário calculado.
+- **A variabilidade da própria medida de dispersão é da ordem do efeito buscado.** Em blocos de N=10 do mesmo degrau, o IQR de D3 vai de 0,0131 a 0,0477 (3,6×), e D1 no bloco 1 tem IQR maior que D0 no bloco 1, invertendo a ordenação que o desenho mede. É achado por si — a medida de reprodutibilidade não é reprodutível — e é a razão de fundo da falta de poder.
+- **H2 sustentada pelo critério (9,0% ≥ 5%), com margem reduzida.** O IC 95% bootstrap da fração é `[0,9% – 18,6%]` e **não** exclui 5%. O IC **não é o critério pré-registrado** e não pode ser tratado como tal; entra como declaração de incerteza.
+- **Anomalia de D2 dissolvida:** a razão de IQR D1→D2 caiu de 1,335 (N=20) para 1,102 (N=30), comportamento de ruído. Não exige mais explicação física; reportar como episódio.
 
 ### Pendências de texto
 
@@ -919,12 +1042,13 @@ Ordem de execução, em `pre-registro.md` §10.7:
 - Que o tema é **inédito**. A busca de originalidade está incompleta.
 - Que `-fp-mode fast` "autoriza reassociação" — a documentação do Slang não diz isso.
 - Que Ubuntu 26.04 está fora da matriz do ROCm. É falso, e já custou uma reinstalação de sistema.
-- Que os 20 runs de **D3** são execuções nominalmente idênticas entre si. **Não são:** metade correu sob kernel `7.0.0-30` e boot `-1`, metade sob `7.0.0-31` e boot `0`.
-- Que a atualização de kernel entre os blocos de D3 **alterou** a dispersão — nem que **não** alterou. N=10 por bloco não decide.
-- Que o **Mesa/RADV** mudou em algum momento das 80 execuções. **Não mudou** — `dpkg.log` não registra nenhuma transação de `mesa-*`, `libvulkan*`, `libdrm*` ou `libgl*` na janela, e o inventário de 2026-08-25 ancora `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.2`.
+- Que os 20 runs de **D3** são execuções nominalmente idênticas entre si. **Não são:** D3 tem três estratos de ambiente (kernel −30/boot −1/libc 8.8; −31/boot 0/libc 8.8; −31/boot 0/libc 8.9), dez execuções em cada. D0, D1 e D2 têm dois estratos, 20 + 10.
+- Que a atualização de kernel entre os blocos de D3 **alterou** a dispersão — nem que **não** alterou. N=10 por bloco não decide, e a comparação de blocos mostra que o estimador de dispersão oscila 3,6× entre blocos do mesmo degrau.
+- Que o **Mesa/RADV** mudou em algum momento das 120 execuções. **Não mudou** — `dpkg.log` não registra nenhuma transação de `mesa-*`, `libvulkan*`, `libdrm*` ou `libgl*` na janela, o inventário de 2026-08-25 ancora `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.2`, e os 40 `ambiente.json` novos confirmam a mesma versão.
 - Que a atualização de `libc6` de 2026-09-21 06:36 afeta as métricas. É **hipótese plausível** pela libm no caminho do PyTorch de CPU, e não foi testada.
-- Que o ciclo **N=30** foi executado. Confirmado pelo aluno em 2026-09-21 como ainda não executado.
-- Que as 80 execuções já medidas correram sob ambiente congelado. **O congelamento é de 2026-09-21 e não retroage.**
+- Que a queda de H2 de 17,8% para 9,0% é **tendência**. Não é: comparando blocos de N=10 igual, D2 vai de 0,0% a 17,8% e volta a 0,0% dentro do mesmo degrau. O estimador é muito ruidoso, e 9,0% em N=30 é a melhor estimativa, não o fim de uma queda.
+- Que **D3 reduz a dispersão** de forma estabelecida. Nenhuma H3.x se sustenta em N=30, e o efeito aparente encolheu em relação a N=20.
+- Que as 80 primeiras execuções correram sob ambiente congelado. **O congelamento é de 2026-09-21 e não retroage.** As 40 de `run020`–`run029` correram sob ambiente congelado e homogêneo.
 - Que o fenômeno **nunca foi quantificado publicamente**. Caiu em 2026-09-21: NerfBaselines v2 reporta σ sobre quatro treinos independentes de 3DGS e gsplat no Mip-NeRF 360; FreeTimeGS++ v3 reporta média ± σ sobre dez execuções.
 - Que **todo trabalho que reporta dispersão varia a seed**. **Indeterminado.** O protocolo de seed do NerfBaselines v2 não é declarado, e a v1 afirmava fixar seeds.
 - Que **nenhum trabalho isola o não-determinismo**. FreeTimeGS++ isola a inicialização explicitamente: *"we fix the initialization and repeat optimization under the same protocol."*
