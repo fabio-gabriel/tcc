@@ -1090,6 +1090,49 @@ Consequência: o §10.8, que prevê *"comportamento em saturação: contar e rep
 
 O script imprime qual estratégia de instrumentação ficou ativa, mas **não grava isso no JSON**. O terminal foi perdido, e não é mais possível saber se o patch pegou por patch de método ou por subclasse. É informação de reprodutibilidade e deveria estar no `meta`. Corrigido para execuções futuras.
 
+## 2026-09-24 — §10.6 **destravado**: o `slangc` compila `InterlockedAdd` inteiro sobre `RWByteAddressBuffer`
+
+Teste executado na Ubuntu por `experimentos/testar_slang_atomic.sh`. Relatório em `~/tcc-runs/slang-teste/relatorio.txt`. **Este era o principal risco técnico em aberto de D4**, sem precedente em nenhum `.slang` nem em nenhum `.spv` versionado do VkSplat.
+
+### Toolchain, verificada
+
+- **Asset:** `slang-2026.2.1-linux-x86_64.tar.gz`, **70.742.686 bytes**, confere com o verificado em fonte primária em 2026-09-21.
+- **SHA-256: `c2a05fa8643d45acf4662d7d18925ee239b16ba934da310c6cfece77dafe1927`** — **fecha a pendência** "Registrar o SHA-256 do asset da Slang". Vai ao adendo do estágio 2.
+- Versão reportada pelo binário: `2026.2.1`.
+- **Estrutura do tar: `bin/` na raiz**, sem diretório-raiz envolvente. Isto importa: a primeira versão do meu script fazia `tar --strip-components=1` fixo, que teria **removido o próprio `bin`** e quebrado a extração. A detecção automática foi acrescentada antes da execução, a partir do aviso na documentação oficial de que os binários ficam em `bin/`; se não tivesse sido, a instalação falharia de forma confusa.
+- **`LD_LIBRARY_PATH` não definido**, e `ldd` confirma que a biblioteca vem do lugar certo: `~/opt/slang-2026.2.1/bin/../lib/libslang-compiler.so.0.2026.2.1`. O "Getting Started" do Slang avisa explicitamente que `LD_LIBRARY_PATH` sobrepõe o RUNPATH e que, com mais de uma Slang instalada (por exemplo a do Vulkan SDK), o binário pode carregar versão diferente, causando *"version mismatches and unexpected behavior"*. Num trabalho sobre reprodutibilidade numérica, compilar shaders com compilador diferente do declarado seria erro silencioso grave. **Verificado, não suposto.**
+- Instalado em `~/opt/slang-2026.2.1`, fora de `/usr/local`, para o ambiente congelado em 2026-09-21 seguir rastreável. Nada instalado via apt — e vale repetir a armadilha: o pacote apt chamado `slang` é a **S-Lang**, biblioteca de terminal sem relação.
+
+### Resultado: 6 de 6 variantes compilaram
+
+| variante | o que testa | resultado | bytes |
+|---|---|---|---|
+| `v1_uint_2args` | `InterlockedAdd(addr, uint)` | OK | 796 |
+| `v2_uint_3args` | idem, com `out original` | OK | 796 |
+| `v3_int_negativo` | valor com sinal via `asuint` | OK | 912 |
+| `v4_int_direto` | `int` sem conversão | OK | 912 |
+| **`v5_nove_sitios`** | **ensaio do padrão real de D4** | **OK** | 2.908 |
+| `v6_float_atomic` | controle: `InterlockedAddF32` | OK | 868 |
+
+**O `v5` é o que destrava:** nove sítios, três `RWByteAddressBuffer`, escalas por componente e arredondamento ao mais próximo — o padrão completo previsto em §10.2 — compila para SPIR-V.
+
+Dois detalhes úteis para escrever o patch:
+
+- **`v3` e `v4` têm exatamente o mesmo tamanho (912 bytes)**, o que sugere que o Slang aceita `int` diretamente e faz a reinterpretação, gerando o mesmo código que `asuint` explícito. Se confirmado por comparação de hash, a macro `_ATOMIC_ADD_FIXED` pode ser escrita com `int` direto, mais legível. **Tamanho igual não é prova de código igual; conferir.**
+- **`v1` e `v2` também coincidem (796 bytes)**, portanto a forma de três argumentos não custa nada quando o valor original é descartado.
+
+### O que este teste ainda NÃO estabelece
+
+1. **Se a instrução emitida é `OpAtomicIAdd` nativo ou emulação por compare-and-swap.** O `slangc` poderia, em princípio, emitir um laço de `OpAtomicCompareExchange`. A distinção não é cosmética: uma emulação por CAS tem contenção e comportamento de ordem diferentes, e o §10.6 pergunta pela instrução. O `spirv-dis` estava ausente na máquina, e **não se instalou pacote novo de propósito**, para não alterar o ambiente congelado. Escrito `experimentos/inspecionar_spirv.py`, que parseia o binário SPIR-V direto — cabeçalho de 5 palavras, opcode nos 16 bits baixos da primeira palavra de cada instrução — sem dependência externa. Validado com módulos sintéticos cobrindo `OpAtomicIAdd` nativo, emulação por compare-exchange, atômico de ponto flutuante, big-endian e módulo corrompido. **Pendente de rodar nos `.spv` gerados.**
+2. **Se `OpAtomicIAdd` faz wraparound e não saturação em estouro.** É disso que a bit-identidade de D4 depende: soma modular é associativa, saturação não é. Exige a especificação SPIR-V da Khronos, não um teste de compilação. **Pendente.**
+3. **Se o RADV executa a instrução corretamente em `gfx1201`.** Compilar não é executar, e isso só a série de D4 responde.
+
+### Opções fixadas na invocação, e por quê
+
+`-fp-mode precise`: não autorizar transformações de ponto flutuante num teste cujo objeto é comportamento numérico. Lembrando a correção de 2026-09-21: a documentação do Slang **não** afirma que `fast` autoriza reassociação — dizer isso segue proibido.
+
+`-denorm-mode-fp32 preserve`: o §10.8 aponta que o `compile_shaders.py` do VkSplat **não fixa** essa opção, cujo default é *"implementation defined"*. Fixada aqui. Para o degrau D4 em si, a decisão de fixá-la ou declarar como limitação do artefato tal como distribuído continua aberta.
+
 ## Estado em 2026-09-21 — ponto de entrada para sessão nova
 
 
@@ -1151,7 +1194,9 @@ Ordem de execução, em `pre-registro.md` §10.7:
 5. **Reverificar as citações literais** da issue #2996 e do PR #970 — são de peso no Cap. 2 e não foram reconferidas em fonte primária nesta sessão.
 6. Conferir se `percent_dense=1e-5` está mesmo na issue #89; se não, remover o número do `PLANO.md` §2.1.3.
 
-**Anteriores:** acrescentar Efron e Tibshirani ao fichamento (o bootstrap não se ancora em Hoefler e Belli). Decidir formato ABNT para citar comentário de issue de repositório. Registrar o SHA-256 do asset da Slang. Survey `Advanced3DGS` **não localizado nem refutado** — pode ser que a anotação do fichamento esteja errada.
+**Anteriores:** acrescentar Efron e Tibshirani ao fichamento (o bootstrap não se ancora em Hoefler e Belli). Decidir formato ABNT para citar comentário de issue de repositório. Survey `Advanced3DGS` **não localizado nem refutado** — pode ser que a anotação do fichamento esteja errada.
+
+**Fechada em 2026-09-24:** SHA-256 do asset da Slang = `c2a05fa8643d45acf4662d7d18925ee239b16ba934da310c6cfece77dafe1927`.
 
 **Nenhum capítulo escrito.**
 
