@@ -967,6 +967,129 @@ Reforça, agora com evidência quantitativa, a decisão já registrada: **D4 é 
 
 **Não rodar mais execuções de D0–D3 esperando que as H3.x fechem.** A conta acima mostra que não fecham. O tempo de máquina restante vai para D4.
 
+## 2026-09-22/23 — Leitura do código do fork: três achados e um erro meu
+
+O fork foi clonado no Mac (`code/etc/vksplatTCC`), o que permitiu ler o código em vez de inferi-lo. Tags `D0`–`D3` presentes, e **os SHAs batem exatamente com os `vksplat_commit` gravados nos `env.json` das 120 execuções** — a cadeia degrau → commit → dados está íntegra, verificada e não suposta.
+
+### Premissa central de D4 confirmada no código
+
+`src/gs_renderer.cpp:345-346`, literal:
+
+```
+RASTERIZE_BACKWARD_USE_SCHEDULING ? pipeline_rasterize_backward[(size_t)scheduled_impl][buffers.is_unsorted_1] :
+    pipeline_rasterize_backward[1][buffers.is_unsorted_1],  // per-splat backward
+```
+
+Com o escalonamento desligado — intervenção de D2, válida para tudo cumulativo depois — o pipeline é **fixo em `[1]`, anotado no próprio código como `per-splat backward`**. Confirma a premissa de `pre-registro.md` §10.1: converter apenas `alphablend_shader_bwd_per_splat.slang` basta, porque D2 elimina o sorteio. Antes era auditoria de leitura; agora é a linha que seleciona o pipeline.
+
+Também confirmado: `executeFusedProjectionBackwardOptimizerStep` recebe `v_xy_vs`, `v_inv_cov_vs_opacity` e `v_rgb` nos bindings **5, 6 e 7** — exatamente como o §10.2 previu.
+
+### Imprecisão no §10.3, a corrigir no adendo
+
+O §10.3 diz que o ponto de leitura é "após `rasterize_backward()`". Mas **`backward_optimize` não está exposto ao Python**: a lista de `.def` em `python_bindings.cpp` tem `rasterize_backward` e `train_step`, não `backward_optimize`. Do Python não há ponto entre o backward e o passo do otimizador.
+
+O ponto viável é **após `train_step`**, e é válido por três razões verificadas:
+
+1. `gs_renderer.cpp:323-325` — o `clearDeviceBuffer` dos três buffers está no **início** de `executeRasterizeBackward`, isto é, no passo seguinte. Os gradientes sobrevivem ao retorno de `train_step`.
+2. O fused optimizer apenas lê os bindings 5/6/7.
+3. `slang/default.slang`, fase `updateState`: `v_xy_vs` é declarado `StructuredBuffer<float2>` — **somente leitura**; a escrita vai para `running_grad`, que é `RWStructuredBuffer`. O `COMPUTE_SHADER_READ_WRITE` em `gs_trainer.cpp:806` é barreira conservadora, não escrita.
+
+### O risco do §10.5 é menor do que estava registrado
+
+`default.slang`, `computeGrowMask`: `float grad = grads.x / max(grads.y, 1.0)`. O teste de limiar da densificação usa a **média acumulada** de gradientes desde o último reset, não o valor instantâneo. Erro de quantização aleatório tende a cancelar numa média; **viés sistemático não cancela**, e truncamento é sistemático. O risco cai de "provável" para "depende do modo de arredondamento" — e isso é argumento direto para **arredondar ao mais próximo, não truncar**.
+
+### Erro meu, do tipo que este projeto já pagou caro
+
+A primeira versão do script de medição patcheava `st.vksplat.VkSplat` e falhou três vezes com `AttributeError: module 'simple_trainer' has no attribute 'vksplat'`.
+
+Causa: `import vksplat` está na **linha 118, dentro da função**, não no topo do arquivo. Meu `grep` usava a âncora `^import`, que não vê import indentado. **Eu notei que o grep não listava `vksplat` e assumi mesmo assim** que o atributo existiria. A informação para não errar estava disponível; preenchi a lacuna com suposição em vez de uma verificação de dez segundos.
+
+Correção: importar `vksplat` no script e substituir o atributo no objeto de módulo — o `import` interno resolve por `sys.modules` e recebe o mesmo objeto. Duas estratégias com fallback: patch de método, e subclasse com o método definido **no corpo da classe**. O detalhe da segunda só apareceu em teste: `Sub.train_step = ...` também usa `setattr`, e a subclasse **herda a metaclass** da base — se a base recusa `setattr`, o fallback não fallbackearia.
+
+Barato desta vez porque falhou antes do treino, não depois de 47 minutos. **Lição operacional: `grep -n "^import"` não vê import indentado.**
+
+## 2026-09-23 — Medição de §10.3 concluída: **D4 cabe em int32**, e um erro meu de dupla contagem
+
+Três repetições em D3, copiadas para `pivo-reprodutibilidade-3dgs/dados/gradientes/`. Script: `experimentos/medir_gradientes_d4.py`, que **não toca o fork** — instrumenta por substituição de classe em tempo de execução, preservando os SHAs de §3.1.
+
+### Integridade
+
+As três repetições: `vksplat_commit d222c47182…` (D3), `train_device 0`, `strategy default`, **30.000 chamadas a `train_step` e 16 medições** em cada, nos steps 0, 1, 10, 100, 500, 1.000, 2.000, 3.000, 5.000, 7.500, 10.000, 12.500, 15.000, 20.000, 25.000, 29.999. **Zero NaN e zero Inf** nas três. Kernel `7.0.0-31-generic`, ambiente congelado.
+
+### Erro meu, corrigido antes de concluir
+
+Meu primeiro cálculo multiplicou `max|grad|` por `K_max` para obter o pior caso do acumulador, e concluiu que **nenhum** componente caberia em `int32` — faixas de 58 a 98 bits.
+
+**Era dupla contagem.** O que o script lê é o gradiente **já acumulado** (leitura após `train_step`, depois de as K contribuições terem sido somadas). Multiplicar de novo por K contava a acumulação duas vezes. Refeito sobre o acumulado, cabe com folga.
+
+Registro o erro porque a conclusão errada era dramática — "D4 inviável, exige atômico de 64 bits, quebra o zero-C++" — e teria mandado o trabalho para um redesenho desnecessário.
+
+### Os números
+
+Máximo do gradiente acumulado, sobre 3 repetições × 16 steps:
+
+| componente | max global | max após step 5.000 | p99,9 máx |
+|---|---|---|---|
+| `xy_x` | 4,703e−05 | 1,652e−05 | 3,837e−06 |
+| `xy_y` | 5,508e−05 | 2,852e−05 | 4,893e−06 |
+| `conic_0` | **3,702e+03** | 3,755e+00 | 1,381e−02 |
+| `conic_1` | **3,600e+03** | 1,392e+00 | 7,635e−03 |
+| `conic_2` | 9,067e+02 | 8,662e−01 | 1,250e−02 |
+| `opacity` | 4,482e−02 | 4,941e−03 | 2,761e−04 |
+| `rgb_r` | 6,326e−03 | 2,849e−04 | 3,756e−05 |
+| `rgb_g` | 5,635e−03 | 2,431e−04 | 3,886e−05 |
+| `rgb_b` | 3,679e−03 | 3,572e−04 | 3,823e−05 |
+
+Fração de zeros: **0,641** em todos os componentes — quase dois terços das gaussianas não recebem gradiente num passo dado.
+
+**Os extremos da cônica são transiente de inicialização.** `conic_0` vai de 3,7e+03 no step 0 para 9,9e+02 no step 10 e para a ordem de 0,1–3,8 a partir do step 5.000. Três ordens de magnitude de queda. Isso obriga a dimensionar para o transiente, não para o regime estável.
+
+### Escalas propostas, por componente
+
+Escala `2^s` com `s = floor(log2(2^30 / max_global))` — um bit de folga sobre `2^31`:
+
+| componente | escala | quantum | níveis no p99,9 | folga |
+|---|---|---|---|---|
+| `xy_x`, `xy_y` | `2^44` | 5,68e−14 | 6,8e7 / 8,6e7 | 1,4b / 1,1b |
+| `conic_0`, `conic_1` | `2^18` | 3,82e−06 | 3.620 / 2.001 | 1,1b / 1,2b |
+| `conic_2` | `2^20` | 9,54e−07 | 13.104 | 1,2b |
+| `opacity` | `2^34` | 5,82e−11 | 4,7e6 | 1,5b |
+| `rgb_r`, `rgb_g` | `2^37` | 7,28e−12 | 5,2e6 / 5,3e6 | 1,3b / 1,5b |
+| `rgb_b` | `2^38` | 3,64e−12 | 1,1e7 | 1,1b |
+
+O caso mais apertado é `conic_1`, com 2.001 níveis no p99,9 — cerca de 11 bits de resolução no corpo da distribuição. Aceitável; é consequência de a cauda transiente ser 5 ordens acima do p99,9.
+
+### O risco do §10.5 praticamente desaparece
+
+Com quantum de `5,68e−14` em `xy`, o erro propagado ao teste de limiar da densificação é `0,5 × q × ‖(W,H)‖ ≈ 4,2e−11`, contra `grow_grad2d = 2e−4`. **2,1e−05 % do limiar.** O candidato mais provável a fazer D4 trocar determinismo por qualidade deixa de ser preocupante — com escala por componente. Uma escala única global teria esse problema; a decisão do §10.2 de usar escalas por componente é o que o resolve, e agora há número para justificá-la.
+
+### O ponto técnico mais importante, e ele é raciocínio meu, a verificar
+
+**Saturação destruiria o objetivo de D4; wraparound não.**
+
+O acumulador soma K termos quantizados, e o valor **intermediário** pode exceder o range quando há cancelamento entre termos de sinais opostos. Isso parece exigir margem enorme — mas não exige, por uma razão estrutural:
+
+- **Aritmética modular de dois complementos é associativa e comutativa.** Se o `InterlockedAdd` fizer *wraparound*, o resultado final é correto módulo `2^32` e **independe da ordem** — que é exatamente a propriedade que D4 busca. Estouros intermediários se cancelam, desde que o **resultado final** caiba no range.
+- **Saturação não é associativa.** Se a implementação saturar, o resultado volta a depender da ordem, e **D4 perde a bit-identidade** — falha em seu único objetivo.
+
+Consequência: o §10.8, que prevê *"comportamento em saturação: contar e reportar, em vez de saturar silenciosamente"*, está formulado para o mecanismo errado. O requisito correto é **exigir wraparound e proibir saturação**, e verificar que o `slangc` emite `OpAtomicIAdd` com semântica de wraparound.
+
+**Isto é inferência minha sobre associatividade modular, não fato verificado na spec.** Entra no adendo como afirmação a confirmar, junto com o teste do §10.6.
+
+### Limitação da medição, a declarar
+
+**Só o gradiente acumulado foi medido, não os termos individuais.** Portanto a magnitude dos somandos e a soma de seus valores absolutos — que governariam o estouro intermediário — não são conhecidas. Medi-las exigiria instrumentar o shader, o que sai do "zero C++ e zero Slang". O argumento do wraparound acima é o que torna a lacuna tolerável: se o resultado final cabe e a aritmética é modular, o intermediário não precisa caber. **Se o wraparound não se confirmar, esta lacuna volta a ser bloqueante.**
+
+### Dois achados laterais que valem para o texto
+
+**1. `K_max = 4.346` contra `p99,9 = 141`.** Confirma empiricamente a observação do §10.4 de que não há limite dedicado de tiles por gaussiana e que "uma gaussiana grande e opaca pode cobrir a tela toda". A razão entre o máximo e o p99,9 é de 31×.
+
+**2. A divergência entre execuções é detectável no primeiro passo medido.** Comparando os 137 campos numéricos por step entre as três repetições, **apenas 71 coincidem no step 0**, caindo para ~32 no regime estável. Eu havia lido os máximos coincidentes de `conic` nos steps 0, 1 e 10 como indício de que as execuções eram idênticas no início; **conferi e estava errado** — coincidem os máximos e os campos de geometria (`K`, `radii`, que no step 0 dependem só da inicialização idêntica), mas os percentis e o mínimo não-nulo já divergem. A divergência está na cauda fina do gradiente desde o primeiro backward, antes de qualquer efeito de densificação ou de ordem de dados. **É H1 observada um nível abaixo do `splat.ply`**, e é material bom para o capítulo de mecanismo.
+
+### Falha do script, a corrigir
+
+O script imprime qual estratégia de instrumentação ficou ativa, mas **não grava isso no JSON**. O terminal foi perdido, e não é mais possível saber se o patch pegou por patch de método ou por subclasse. É informação de reprodutibilidade e deveria estar no `meta`. Corrigido para execuções futuras.
+
 ## Estado em 2026-09-21 — ponto de entrada para sessão nova
 
 

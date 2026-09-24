@@ -319,6 +319,10 @@ def main() -> int:
 
     meta["train_step_chamadas"] = contador["chamadas"]
     meta["medicoes_feitas"] = contador["medicoes"]
+    # Gravado no JSON, nao apenas impresso: em 2026-09-23 o terminal de tres
+    # execucoes foi perdido e a estrategia usada ficou irrecuperavel. E
+    # informacao de reprodutibilidade do artefato de medicao.
+    meta["estrategia_instrumentacao"] = estrategia
 
     destino = os.path.join(out, f"gradientes_rep{args.rep:02d}.json")
     with open(destino, "w") as fp:
