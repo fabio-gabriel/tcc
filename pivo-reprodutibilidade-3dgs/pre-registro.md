@@ -353,3 +353,171 @@ Ou seja: **o erro de quantização do ponto fixo propaga diretamente para a deci
 - **`-denorm-mode-fp32`**: o `slangc` tem essa opção com default `any`, documentado como *"implementation defined"*, e o `compile_shaders.py` **não a fixa**. Num trabalho sobre reprodutibilidade numérica isso é fonte de divergência não controlada. Fixar explicitamente, ou declarar como limitação do artefato tal como distribuído.
 - **SHA-256 do asset da Slang** (`assets[].digest` no endpoint da release), para o ambiente ser reproduzível.
 - Comportamento em **saturação**: contar e reportar, em vez de saturar silenciosamente.
+
+---
+
+## 11. Adendo do estágio 2 — parâmetros e procedimento de D4
+
+> **Estado: RASCUNHO, redigido em 2026-09-25.** Torna-se vinculante quando commitado, e **só pode ser commitado depois do teste T0 (§11.5)**, porque o resultado de T0 escolhe entre dois procedimentos de build. Governa **apenas D4**; nada aqui altera D0–D3.
+>
+> **Relação com o §10.** O §10 é rascunho travado em commit e **não foi editado**. Onde este §11 diverge do §10, o §11 prevalece, e cada divergência está declarada em §11.7 como desvio datado. Base de toda a leitura de código: tag `D3` do fork, `d222c47182f5917be0cc209f19d3257e1ebad17e`.
+
+### 11.1 Premissas, verificadas no código em 2026-09-25
+
+1. **O backward executado é só o `per_splat`.** Com `RASTERIZE_BACKWARD_USE_SCHEDULING 0` (D2, cumulativo), `src/gs_renderer.cpp:345-346` fixa `pipeline_rasterize_backward[1]`, anotado `// per-splat backward`, carregado de `rasterize_backward_1.spv` (`python_bindings.cpp:96`). As variantes `per_pixel` e `tensor` também escrevem nos mesmos buffers, mas não são despachadas em D2 e depois.
+2. **A pré-redução do `per_splat` é determinística.** `alphablend_shader_bwd_per_splat.slang:138-178`: o laço é um pipeline em diagonal. No passo `i`, o thread do splat `s` processa o pixel `p = i − s` (`:141`). Cada pixel tem um único dono por passo, há barreira em todo passo (`GroupMemoryBarrierWithGroupSync()` no incremento do `for`), e cada thread soma seus pixels numa ordem fixada pelo laço (`:178-180`). Não há corrida na memória compartilhada nem soma em ordem variável antes do atômico.
+3. **Produtor:** os 9 sítios em `per_splat.slang:191-199`. A macro `_ATOMIC_ADD` é **local** ao arquivo (`:183-189`), e não definida em `config.slang`.
+4. **Consumidores, e apenas eles:**
+   - `fused_projection_backward_optimizer.slang`, bindings 5/6/7 (`:16-18`, `StructuredBuffer<float2|float4|float>`), lidos em `:110-115`; o `rgb` passa por `read_t3_float3` (`utils.slang:46`).
+   - `default.slang:49` (`StructuredBuffer<float2> v_xy_vs`), lido em `:70` na fase `UpdateState`.
+
+   Levantamento por nome e por binding em todos os `.slang` de D3.
+5. **Zero C++.** O C++ só limpa (`gs_renderer.cpp:323-325`, `vkCmdFillBuffer` com zero, que vale `0.0f` e `int32_t(0)`), faz barreira e vincula os buffers. Não os interpreta.
+6. **O `.spv` versionado é o que executa.** O `setup.py` não compila shaders. Os 45 `.spv` de D3 são os do upstream, intocados desde `b3ad2b0`. 42 deles foram gerados pelo Slang (cabeçalho `generator 0x280000`, versão 0, portanto a versão do compilador do upstream não é recuperável), e 3 pelo `glslc` (`radix_sort`). O arquivo `rasterize_backward.spv`, sem índice, **não é gerado por nenhum job nem carregado** (`spirv_paths` só lista os índices 0 a 4). É arquivo morto e fica fora do escopo.
+
+### 11.2 A transformação, com os valores fixados
+
+Para cada um dos 9 termos, calculados em `float` como hoje:
+
+```
+q = int( round( clamp( v · 2^s , −L , +L ) ) )     L = 2147483520.0
+se q ≠ 0:  InterlockedAdd(buffer, 4·endereço, q)   // OpAtomicIAdd, inteiro de 32 bits
+```
+
+Nos consumidores: `v = float(q) · 2^−s`.
+
+`L` é o maior `float32` abaixo de `2^31`: o espaçamento dos floats perto de `2^31` é 128, e `L` é representável exatamente, o que foi conferido.
+
+**Escalas.** Regra `s = floor(log2(2^30 / máx_observado))`, aplicada aos dados de `dados/gradientes/` (3 repetições × 16 steps em D3, zero NaN e zero Inf). Os valores foram recalculados dos JSON em 2026-09-25 e coincidem com a entrada do caderno de 2026-09-23:
+
+| componente | buffer · posição | máx. observado | `s` | folga sobre o máx. | níveis no p99,9 |
+|---|---|---|---|---|---|
+| `xy_x` | `v_xy_vs[2i+0]` | 4,703e−05 | **44** | 2,60× | 6,75e7 |
+| `xy_y` | `v_xy_vs[2i+1]` | 5,508e−05 | **44** | 2,22× | 8,61e7 |
+| `conic_0` | `v_inv_cov_vs_opacity[4i+0]` | 3,702e+03 | **18** | 2,21× | 3.620 |
+| `conic_1` | `v_inv_cov_vs_opacity[4i+1]` | 3,600e+03 | **18** | 2,28× | 2.001 |
+| `conic_2` | `v_inv_cov_vs_opacity[4i+2]` | 9,067e+02 | **20** | 2,26× | 13.104 |
+| `opacity` | `v_inv_cov_vs_opacity[4i+3]` | 4,482e−02 | **34** | 2,79× | 4,74e6 |
+| `rgb_r` | `v_rgb[3i+0]` | 6,326e−03 | **37** | 2,47× | 5,16e6 |
+| `rgb_g` | `v_rgb[3i+1]` | 5,635e−03 | **37** | 2,77× | 5,34e6 |
+| `rgb_b` | `v_rgb[3i+2]` | 3,679e−03 | **38** | 2,12× | 1,05e7 |
+
+**Por que `round` e `clamp` são obrigatórios.** Especificação SPIR-V unificada, *version 1.6, Revision 8*, *Last updated 2026-09-08*, `registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html`, acesso em 2026-09-25. Sobre `OpConvertFToS`, literal:
+
+> *"Convert value numerically from floating point to signed integer, with round toward 0.0. […] Behavior is undefined if Result Type is not wide enough to hold the converted value."*
+
+Daí duas consequências:
+- sem `round`, a conversão **trunca**, o que é viés sistemático em direção a zero e contamina a média acumulada que alimenta a densificação;
+- sem `clamp`, um termo fora do range é **comportamento indefinido**.
+
+A regra de desempate de `round` é irrelevante para H3.4, porque qualquer regra fixa é determinística, e seu viés é desprezível. Exige-se apenas arredondamento ao mais próximo. A instrução efetivamente emitida é conferida no `.spv` (V3, §11.6).
+
+### 11.3 Por que a escala não pode afetar H3.4
+
+Pela mesma especificação, `OpAtomicIAdd` realiza *"integer addition"*. Para `OpIAdd`, *"the resulting value equals the low-order N bits of the correct result R"*: a adição inteira é módulo `2^32`, associativa e comutativa. **A conclusão vem da composição dessas duas cláusulas, e não de uma frase única.** A especificação admite que a API cliente acrescente restrições, e **a especificação Vulkan não foi conferida**.
+
+Consequência. Dado o mesmo multiconjunto de termos quantizados, o resultado independe da ordem das invocações, **qualquer que seja a escala e mesmo que haja estouro**. O `clamp` e o `round` são funções puras de cada termo e preservam essa propriedade. A escala afeta **correção numérica e qualidade**, que são observáveis reportados, e **não** o critério de H3.4.
+
+### 11.4 Organização da mudança no fork
+
+O `compile_shaders.py` recompila por grupo, e o checksum de cada grupo inclui a fonte, as dependências declaradas e o conteúdo do próprio `compile_shaders.py`. Por isso:
+
+| arquivo | ação | razão |
+|---|---|---|
+| **novo** `vksplat/slang/d4_fixed_point.slang` | as 9 constantes `2^s` e `2^−s`, `L`, função de quantização e de desquantização | fonte única de verdade para produtor e consumidores. Escala divergente entre produtor e consumidor seria erro silencioso de correção |
+| `alphablend_shader_bwd_per_splat.slang` | incluir o novo arquivo; substituir a macro local `:183-189` por versão inteira com escala por sítio; os 9 sítios passam a indicar a escala | produtor |
+| `fused_projection_backward_optimizer.slang` | bindings 5/6/7 para `StructuredBuffer<int2>`, `<int4>`, `<int>`; desquantizar em `:110-115`; leitura dos 3 inteiros de `rgb` feita **localmente** | consumidor |
+| `default.slang` | binding 0 da fase `UpdateState` para `StructuredBuffer<int2>`; desquantizar em `:70` | consumidor |
+| `config.slang` | **não tocar** | é dependência de 8 dos 12 grupos |
+| `utils.slang` | **não tocar**, nem com uma sobrecarga nova de `read_t3_float3` | é dependência de 4 grupos, 2 deles alheios a D4 (`tile_shader`, `vertex_shader`) |
+| `compile_shaders.py` | **não tocar** | seu conteúdo entra no checksum de todos os grupos |
+| qualquer `.cpp`/`.h` | **não tocar** | §11.1, item 5 |
+
+O novo arquivo não aparece nas dependências declaradas do `compile_shaders.py`, e portanto o cache não o rastreia. Isso é aceitável porque o build de D4 não usa o cache (§11.5), e fica declarado.
+
+**Invariante verificável do commit de D4 (V2):** comparado a D3, mudam apenas estes arquivos:
+- os 3 `.slang`;
+- o arquivo novo;
+- exatamente 3 `.spv`: `rasterize_backward_1`, `fused_projection_backward_optimizer` e `default_update_state`.
+
+Os outros 42 `.spv` ficam bit-idênticos a D3. Qualquer `.spv` a mais no diff é defeito a investigar antes da série.
+
+### 11.5 Teste T0 — o compilador reproduz o upstream?
+
+Alterar esses três arquivos regenera os 16 `.spv` dos três grupos, e eles serão gerados pelo **nosso** `slangc 2026.2.1` (SHA-256 do asset `c2a05fa8643d45acf4662d7d18925ee239b16ba934da310c6cfece77dafe1927`), não pelo do upstream, cuja versão é desconhecida (§11.1, item 6).
+
+O script `experimentos/reproduzir_spv_upstream.py` faz o seguinte:
+- recompila as fontes **inalteradas** de D3, nos 41 jobs Slang;
+- usa o comando exato de `compile_shaders.py`, com a lista de jobs e defines importada dele;
+- compara os resultados por hash com os `.spv` versionados.
+
+Ele não escreve no fork.
+
+- **Caminho A: 41/41 idênticos.** O nosso compilador reproduz o do upstream, e D4 difere de D3 apenas na fonte. Os 16 `.spv` regenerados entram no commit, e 13 deles sairão idênticos, o que é exigido por V2.
+- **Caminho B: algum diferente.** O compilador passa a ser um segundo fator. Nesse caso:
+  - entram no commit apenas os 3 `.spv` semanticamente alterados, e os outros 13 são restaurados de D3 (`git checkout D3 -- <arquivos>`);
+  - **H3.4 não é afetada**, porque bit-identidade é propriedade interna de D4;
+  - a comparação D3 × D4 de tempo e PSNR fica confundida pelo compilador nos 3 kernels.
+
+  **Pré-registrado aqui, antes dos dados:** no caminho B roda-se antes de D4 um controle **D3c**. D3c é a fonte de D3 com os mesmos 3 `.spv` recompilados pelo nosso compilador, com N=10, e a série é exploratória. Serve para separar o efeito do compilador do efeito da acumulação sobre mediana de tempo e de PSNR. Não serve para comparar dispersão, por falta de poder (§5.2 e caderno de 2026-09-22).
+
+Em qualquer caminho, os `.spv` de D4 são gerados com o comando replicado por `reproduzir_spv_upstream.py`, e não pelo `compile_shaders.py`. Motivos: o `__init__` do `compile_shaders.py` exige `glslc` (`compile_shaders.py:82`) mesmo para jobs Slang, e o cache decide sozinho o que recompilar.
+
+### 11.6 Opções de compilação e verificações antes da série
+
+**Opções idênticas às do upstream:** `-stage compute -O -fp-mode fast -line-directive-mode none` (`compile_shaders.py:26`), com `-target spirv` e os defines de cada job.
+
+**Não** se usam `-fp-mode precise` nem `-denorm-mode-fp32 preserve`, embora o teste de 2026-09-24 os tenha usado. A evidência:
+- nenhum dos 42 `.spv` Slang do upstream declara `SPV_KHR_float_controls`;
+- os `.spv` do teste de 2026-09-24, compilados com `preserve`, declaravam.
+
+Fixar essas opções em D4 mudaria o binário por uma segunda razão. Entre as duas alternativas do §10.8, fica a de **declarar como limitação do artefato tal como distribuído**: o modo de denormais é *"implementation defined"*, e é o mesmo nos cinco degraus.
+
+**Verificações, todas antes da primeira execução medida de D4:**
+
+| | verificação | critério |
+|---|---|---|
+| V1 | fork limpo, tag `D4` no commit, SHA registrado (§11.8) | `git status --porcelain` vazio |
+| V2 | `git diff --name-only D3 D4` | exatamente o conjunto de §11.4 |
+| V3 | `inspecionar_spirv.py` em `rasterize_backward_1.spv` | `OpAtomicIAdd` ×9, zero `OpAtomicFAddEXT`, sem `SPV_EXT_shader_atomic_float_add`; arredondamento ao mais próximo presente |
+| V4 | `inspecionar_spirv.py` nos dois consumidores | nenhum atômico novo |
+
+Uma execução que falhar antes de produzir `splat.ply` é de encanamento: é declarada e contada à parte, e não é dado.
+
+### 11.7 Desvios declarados — 2026-09-25
+
+**Honestidade sobre a ordem dos eventos.** Todos os parâmetros abaixo foram fixados **depois** de observada a dispersão de D0–D3 em N=10, 20 e 30. O §3.2 e o §10 pediam o contrário para os parâmetros de D4. A defesa é o §11.3: nenhum deles tem grau de liberdade sobre o critério de H3.4. Ainda assim, a monografia declara a ordem real dos eventos.
+
+| # | o que o pré-registro dizia | o que vale | por quê |
+|---|---|---|---|
+| D-1 | §10.3: ler os gradientes "após `rasterize_backward()`" | lidos após `train_step` | `backward_optimize` não é exposto ao Python. Os buffers só são zerados no início do backward seguinte (`gs_renderer.cpp:323-325`), e os consumidores os tratam como somente leitura. Resultado equivalente |
+| D-2 | §10.3 não especificava o degrau | medição feita em **D3** | D4 é cumulativo sobre D3. Em D0 e D1 o escalonador mistura implementações com contagens de termos diferentes |
+| D-3 | §3.2: parâmetros de D4 fixados "antes de observar a dispersão de D0–D3" | fixados depois | ver o parágrafo acima e §11.3 |
+| D-4 | §10.8: "comportamento em saturação: contar e reportar" | não há saturação na adição inteira SPIR-V. **Exige-se `clamp` por termo antes da conversão** (sem ele, o comportamento é indefinido) e **proíbe-se qualquer saturação do acumulador**, como laço de compare-exchange com `min`/`max` sobre o valor armazenado | o `clamp` por termo é função pura do termo e preserva a associatividade; a saturação do acumulador a destrói. **Corrige também a lista de pendências do caderno em 2026-09-25**, que proibia `clamp` antes do atômico sem distinguir os dois casos |
+| D-5 | §10.2: constantes e macro em `config.slang`; variante de `read_t3_float3` | novo arquivo `d4_fixed_point.slang`; `config.slang` e `utils.slang` intocados; leitura de `rgb` local ao otimizador | ver §11.4 |
+| D-6 | §0, linha 16: alterar `.slang` "exige `compile_shaders.py`" | `slangc` invocado diretamente, replicando o comando | ver §11.5 |
+| D-7 | §3.1, linha de D4: rebuild "shader + C++" | só shader | ver §11.1, item 5. O `run_degree.sh` recompila o C++ de todo modo, sem efeito |
+
+### 11.8 Execução e critério
+
+- **Série:** `bash run_degree.sh D4 0 9`, sob o ambiente congelado em 2026-09-21, com `ambiente.json` por execução, e com as checagens de invalidação do §9 inalteradas.
+- **N:** o §5.1 se aplica sem mudança. `N_min = 10`. Se os 10 PSNR forem idênticos, o IC da mediana tem largura zero e a regra para em 10.
+- **Critério de H3.4:** exatamente o do §6. Sustentada se os `splat.ply` das N execuções tiverem **hash idêntico**, e refutada caso contrário. Refutada, a fonte residual não identificada passa a ser o achado.
+- **Reportados, mas fora do critério:**
+  - PSNR/SSIM/LPIPS e `num_splats` de D4 contra a mediana de D3, que é o custo em qualidade;
+  - `time_elapsed` contra D3, que é o custo em tempo, com a ressalva do caminho B se for o caso.
+
+  Se H3.4 for sustentada com qualidade degradada, isso indica escala subdimensionada e não refuta H3.4.
+- **SHA do commit de D4:** registrado numa entrada datada acrescentada **abaixo** desta seção, depois do commit no fork. Não se edita a tabela do §3.1.
+- **H3b** (injeção de um bit a partir de D4) **não** é parametrizada aqui e exige adendo próprio.
+
+### 11.9 Limitações de D4, declaradas antes da execução
+
+1. **Execução no RADV não verificada.** Compilar e emitir a instrução certa não é executar.
+2. **Só o acumulado foi medido, não os termos.** A folga de 2,1× a 2,8× vem de 3 execuções, e o máximo observado não é o máximo possível. Um termo acima de `L·2^−s` é saturado pelo `clamp`, o que afeta correção e não bit-identidade. Termos abaixo de `½·2^−s` viram zero.
+3. **NaN não é tratado.** Zero NaN foram observados em 48 amostras por componente, mas `clamp` e conversão de NaN não são especificados como determinísticos.
+4. **Modo de denormais *"implementation defined"*,** o mesmo nos cinco degraus (§11.6).
+5. **A especificação Vulkan não foi conferida** quanto à semântica de adição inteira (§11.3).
+6. **Dependência D2 → D4.** A intervenção cobre uma das três variantes de backward e só é completa porque D2 é cumulativo.
+7. **`VK_EXT_shader_atomic_float` continua exigida** pelo dispositivo, pelas outras variantes de backward e pelo `morton_sort.slang`. D4 a elimina só do `.spv` do `per_splat`.
+8. **O script de medição de gradientes não serve para D4 sem adaptação:** ele lê os buffers como `float`, e em D4 eles contêm inteiros.

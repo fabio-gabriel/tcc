@@ -1121,10 +1121,39 @@ Dois detalhes úteis para escrever o patch:
 - **`v3` e `v4` têm exatamente o mesmo tamanho (912 bytes)**, o que sugere que o Slang aceita `int` diretamente e faz a reinterpretação, gerando o mesmo código que `asuint` explícito. Se confirmado por comparação de hash, a macro `_ATOMIC_ADD_FIXED` pode ser escrita com `int` direto, mais legível. **Tamanho igual não é prova de código igual; conferir.**
 - **`v1` e `v2` também coincidem (796 bytes)**, portanto a forma de três argumentos não custa nada quando o valor original é descartado.
 
+### Instrução confirmada: `OpAtomicIAdd` **nativo**, sem emulação
+
+Inspeção dos seis `.spv` com `experimentos/inspecionar_spirv.py`:
+
+| variante | instrução atômica | extensões declaradas |
+|---|---|---|
+| `v1_uint_2args` | `OpAtomicIAdd` **×1** | `SPV_KHR_storage_buffer_storage_class`, `SPV_KHR_float_controls` |
+| `v2_uint_3args` | `OpAtomicIAdd` **×1** | idem |
+| `v3_int_negativo` | `OpAtomicIAdd` **×1** | idem |
+| `v4_int_direto` | `OpAtomicIAdd` **×1** | idem |
+| **`v5_nove_sitios`** | **`OpAtomicIAdd` ×9** | idem |
+| `v6_float_atomic` | `OpAtomicFAddEXT` ×1 | idem **+ `SPV_EXT_shader_atomic_float_add`** |
+
+**Zero `OpAtomicCompareExchange` em qualquer variante.** A hipótese de que o `slangc` poderia emitir emulação por compare-and-swap está descartada por inspeção do binário, não por suposição. Todos os módulos em SPIR-V 1.5.
+
+**O `v5` emite exatamente 9 `OpAtomicIAdd`** — um por sítio, mapeamento 1:1 com os 9 sítios de `_ATOMIC_ADD` previstos no §10.2. O padrão completo de D4 não é apenas compilável: gera a instrução pretendida, na quantidade pretendida.
+
+### Três achados que refinam o plano de D4
+
+**1. `int` direto e `asuint` produzem código bit-idêntico.** `sha256sum` de `v3_int_negativo.spv` e `v4_int_direto.spv`: ambos `c000381b0f3697f845de807e1fddb5d231bbd8123cc8e915f475897b7f06ce6a`. Não é só o mesmo tamanho, é o mesmo módulo. Portanto a macro `_ATOMIC_ADD_FIXED` pode passar `int` diretamente, sem `asuint` explícito. **Decisão: usar `int` direto, por legibilidade.**
+
+**2. O atômico inteiro é core SPIR-V; não exige extensão.** As variantes inteiras declaram apenas `SPV_KHR_storage_buffer_storage_class` e `SPV_KHR_float_controls`. O controle `v6` é o único que precisa de **`SPV_EXT_shader_atomic_float_add`**.
+
+Isto é mais que detalhe de implementação, e vale para o texto: o VkSplat exige `VK_EXT_shader_atomic_float` **incondicionalmente** na criação do dispositivo (armadilha 3 do `CLAUDE.md` desta pasta). Ao converter os 9 sítios do `per_splat`, D4 **elimina a dependência dessa extensão naquele shader** — a acumulação passa a usar instrução do núcleo da especificação. A variante determinística é também a **mais portável**, e isso é argumento a favor da intervenção independente do resultado de bit-identidade. Não estava previsto no pré-registro.
+
+Ressalva de escopo, para não exagerar: a extensão continua necessária pelas **outras** variantes de backward (`per_pixel`, `tensor`) e pelos 6 sítios de `morton_sort.slang`, que D4 não toca. A afirmação correta é sobre o shader convertido, não sobre o binário todo.
+
+**3. `SPV_KHR_float_controls` aparece nos seis módulos**, o que confirma que `-denorm-mode-fp32 preserve` **foi efetivamente aplicado** — a opção não foi silenciosamente ignorada. Evidência de que a lacuna do §10.8 é controlável na prática, não apenas nominalmente.
+
 ### O que este teste ainda NÃO estabelece
 
-1. **Se a instrução emitida é `OpAtomicIAdd` nativo ou emulação por compare-and-swap.** O `slangc` poderia, em princípio, emitir um laço de `OpAtomicCompareExchange`. A distinção não é cosmética: uma emulação por CAS tem contenção e comportamento de ordem diferentes, e o §10.6 pergunta pela instrução. O `spirv-dis` estava ausente na máquina, e **não se instalou pacote novo de propósito**, para não alterar o ambiente congelado. Escrito `experimentos/inspecionar_spirv.py`, que parseia o binário SPIR-V direto — cabeçalho de 5 palavras, opcode nos 16 bits baixos da primeira palavra de cada instrução — sem dependência externa. Validado com módulos sintéticos cobrindo `OpAtomicIAdd` nativo, emulação por compare-exchange, atômico de ponto flutuante, big-endian e módulo corrompido. **Pendente de rodar nos `.spv` gerados.**
-2. **Se `OpAtomicIAdd` faz wraparound e não saturação em estouro.** É disso que a bit-identidade de D4 depende: soma modular é associativa, saturação não é. Exige a especificação SPIR-V da Khronos, não um teste de compilação. **Pendente.**
+1. ~~Se a instrução emitida é `OpAtomicIAdd` nativo ou emulação por compare-and-swap.~~ **Resolvido em 2026-09-24: nativo, zero compare-exchange.** Resolvido sem instalar `spirv-tools`, por `experimentos/inspecionar_spirv.py`, que parseia o binário direto — cabeçalho de 5 palavras, opcode nos 16 bits baixos da primeira palavra de cada instrução. Validado antes do uso com módulos sintéticos cobrindo `OpAtomicIAdd` nativo, emulação por compare-exchange, atômico de ponto flutuante, big-endian e módulo corrompido.
+2. ~~Se `OpAtomicIAdd` faz wraparound e não saturação em estouro.~~ **Resolvido em 2026-09-24 na especificação SPIR-V — ver a entrada seguinte.**
 3. **Se o RADV executa a instrução corretamente em `gfx1201`.** Compilar não é executar, e isso só a série de D4 responde.
 
 ### Opções fixadas na invocação, e por quê
@@ -1133,10 +1162,149 @@ Dois detalhes úteis para escrever o patch:
 
 `-denorm-mode-fp32 preserve`: o §10.8 aponta que o `compile_shaders.py` do VkSplat **não fixa** essa opção, cujo default é *"implementation defined"*. Fixada aqui. Para o degrau D4 em si, a decisão de fixá-la ou declarar como limitação do artefato tal como distribuído continua aberta.
 
-## Estado em 2026-09-21 — ponto de entrada para sessão nova
+## 2026-09-24 — Especificação SPIR-V: **wraparound confirmado**, e a consequência é mais forte do que se esperava
 
+Fonte: especificação SPIR-V unificada, versão 1.6 revisão 8, Khronos Group, em `registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html`. Acesso em 2026-09-24. Esta era a última peça pendente do adendo do estágio 2.
+
+### A cadeia normativa, em duas cláusulas
+
+**§3.3.18, `OpAtomicIAdd`** — citação literal:
+
+> *"Perform the following steps atomically with respect to any other atomic accesses within Memory to the same location: load through Pointer to get an Original Value, get a New Value by **integer addition** of Original Value and Value, and store the New Value back through Pointer."*
+
+**§3.3.13, `OpIAdd`** ("Integer addition of Operand 1 and Operand 2") — citação literal:
+
+> *"The resulting value equals the **low-order N bits of the correct result R**, where N is the component width and R is computed with enough precision to avoid overflow and underflow."*
+
+Portanto a adição inteira em SPIR-V é definida como os N bits baixos do resultado exato: **aritmética modular `2^N`**. Não há saturação, e não há comportamento indefinido em estouro.
+
+**Força da inferência, declarada:** a entrada de `OpAtomicIAdd` **não** repete a cláusula dos "low-order N bits"; ela diz *"integer addition"*, e a semântica de adição inteira está definida em `OpIAdd`. A conclusão vem da **composição de duas cláusulas normativas**, não de uma frase única. É inferência de uma etapa, e não de uma leitura literal — consta assim no texto, e não como "a especificação diz que `OpAtomicIAdd` faz wraparound".
+
+**Ressalva de escopo:** a especificação afirma que o client API pode acrescentar regras e limitações. Não se verificou se a especificação Vulkan restringe algo aqui. A afirmação verificada é no nível SPIR-V.
+
+### Por que isso é o fundamento teórico de D4
+
+Adição modular `2^32` é **associativa e comutativa**. Logo a soma das K contribuições atômicas produz o mesmo resultado **qualquer que seja a ordem** em que as invocações de GPU executem. Esse é exatamente o mecanismo que H3.4 propõe, e agora está ancorado na especificação em vez de na intuição.
+
+Simetricamente, confirma a razão pela qual o `float32` falha: adição em ponto flutuante não é associativa, e é essa não-associatividade — combinada com ordem não determinística — que produz os 120 modelos distintos de H1.
+
+### A consequência que separa dois riscos, e não estava prevista
+
+Como a aritmética é modular e não saturante, **o estouro intermediário não quebra a bit-identidade**. Mais: **o estouro do resultado final também não quebra.** Um acumulador que exceda o range produz um valor numericamente errado — mas produz *o mesmo* valor errado em toda execução.
+
+Isso separa dois riscos que estavam confundidos no plano:
+
+| risco | garantido por | sensível à escala? |
+|---|---|---|
+| **Bit-identidade** (H3.4) | wraparound modular | **não** |
+| **Correção numérica / qualidade** (PSNR, contagem de gaussianas) | escala bem dimensionada | **sim** |
+
+**Consequência de método, e ela fortalece o argumento registrado em 2026-09-22:** a preocupação do §3.2 de que "os parâmetros de D4 não podem ser escolhidos após observar a dispersão de D0–D3" fica ainda mais dissolvida. A escala **não pode** influenciar o desfecho de H3.4, porque o determinismo vem do wraparound e vale para qualquer escala. O que a escala afeta é a qualidade — que é observável reportado, não critério de hipótese. Não há grau de liberdade pelo qual a escolha tardia das escalas pudesse favorecer o resultado.
+
+**Consequência prática:** se D4 produzir hashes idênticos mas PSNR degradado, isso **não** é falha de H3.4 — é evidência de escala mal dimensionada, diagnosticável e corrigível, e os dois efeitos são distinguíveis nos dados. Se produzir hashes distintos, o problema não está na escala: está em alguma fonte de não-determinismo fora dos 9 sítios convertidos.
+
+### Correção ao §10.8 do pré-registro
+
+O §10.8 prevê *"comportamento em saturação: contar e reportar, em vez de saturar silenciosamente"*. **A formulação está errada para esta plataforma:** não existe saturação em adição inteira SPIR-V. O item deve ser reescrito como:
+
+- **exigir** semântica de wraparound (que é o comportamento especificado, não uma opção);
+- **contar e reportar estouro do resultado final**, porque afeta correção numérica embora não afete bit-identidade;
+- **proibir** qualquer implementação com `clamp`/`min`/`max` antes do atômico, porque isso reintroduziria não-associatividade e destruiria o objetivo do degrau.
+
+Este último ponto é o mais importante e o menos óbvio: uma tentativa bem-intencionada de "proteger contra estouro" saturando o valor antes da adição **quebraria D4**. Registrar no adendo de forma explícita, para que não seja acrescentado como "melhoria" durante a implementação.
+
+### Estado do §10.7
+
+| passo | estado |
+|---|---|
+| 1. Medir magnitude dos gradientes e distribuição de K | **feito** (2026-09-23) |
+| 2. Verificar que o `slangc` emite SPIR-V válido para `InterlockedAdd` inteiro | **feito** (2026-09-24) — `OpAtomicIAdd` nativo ×9 |
+| 3. Fixar escalas por componente e commitar o adendo do estágio 2 | **pronto para redigir** |
+| 4. Implementar (4 arquivos Slang, zero C++), commitar como D4, registrar SHA | pendente |
+| 5. Rodar a série e verificar bit-identidade por hash | pendente |
+
+**Nada mais bloqueia o adendo.** Os insumos estão todos verificados: escalas por componente, SHA-256 da toolchain, instrução confirmada, semântica de estouro ancorada na especificação, e a dependência D2 → D4 confirmada no código.
+
+## 2026-09-25 — Adendo do estágio 2 redigido, e **dois itens do plano estavam errados**
+
+Sessão principal, depois de reler o caderno em disco. O caderno avisa, e com razão, que a memória da conversa estava desatualizada.
+
+### Conferência de retomada
+
+Tudo que a seção de estado afirma foi conferido por evidência:
+- 30 execuções por degrau;
+- 120 hashes, todos distintos;
+- `ambiente.json` só em `run020`–`run029`;
+- 3 JSON de gradientes, cada um com 30.000 chamadas, 16 medições e zero NaN/Inf;
+- D0 com IQR 0,0530 e H2 = 39/435.
+
+**Divergência encontrada:** não havia commit posterior a `c222800`. As entradas de 2026-09-24 sobre SPIR-V, os achados do `slangc` e a seção "Estado em 2026-09-25" existiam **só no working tree**. Os scripts estavam commitados; as conclusões tiradas deles, não. Informado ao aluno. O commit é dele.
+
+### Redigido: `pre-registro.md` §11, acrescentado ao fim
+
+**Nenhuma linha do §0 ao §10 mudou.** Conferido com `cmp` das linhas 1–355 contra HEAD: bit-idênticas, zero linhas removidas. O §11 é rascunho. Fica vinculante quando commitado, e só depois do teste T0.
+
+### Achado 1 — o compilador é um fator não controlado, e o plano não o via
+
+Lido no fork, em D3:
+
+- **O `.spv` versionado é o que executa.** O `setup.py` não compila shaders. Os 45 `.spv` de D3 são os do upstream: `git diff b3ad2b0 D3 -- '*.spv'` sai vazio. D0–D3 nunca executaram shader compilado por nós.
+- **O compilador do upstream não é identificável.** Os 42 `.spv` do Slang têm `generator 0x280000`, que é tool 40 com versão **0**.
+- **Mexer em um arquivo regenera muitos.** O `compile_shaders.py` recompila por grupo, e o checksum inclui dependências e o próprio script. Alterar o `per_splat` recompila as **6** saídas de `alphablend_shader.slang`, **inclusive o `rasterize_forward`**. Alterar `default.slang` recompila as 9 fases. `config.slang` é dependência de 8 dos 12 grupos, e `utils.slang` de 4.
+
+Logo D4 terá `.spv` gerados pelo nosso `slangc 2026.2.1`. Se ele não reproduzir os bytes do upstream a partir das mesmas fontes, D4 difere de D3 **em duas coisas**.
+
+**H3.4 não é afetada**, porque bit-identidade é propriedade interna de D4. **A comparação D3 × D4 de tempo e de qualidade, sim.**
+
+Resposta: teste **T0**, `experimentos/reproduzir_spv_upstream.py`. Ele recompila as fontes inalteradas de D3 nos 41 jobs Slang, com o comando exato do `compile_shaders.py` e com a lista de jobs importada dele, e compara por hash. O adendo pré-registra dois caminhos: A, se tudo for idêntico; B, se algo diferir. No caminho B há um controle **D3c**, fixado antes dos dados (§11.5).
+
+O script foi testado no Mac com clone descartável e `slangc` falso. Enumera 41 jobs, 16 deles nos grupos de D4. Detectou o byte corrompido de propósito no offset certo e deixou o fork limpo. Um defeito foi encontrado e corrigido nesse teste: o `import` do `compile_shaders` criava `__pycache__` dentro do fork. O git não acusava porque está no `.gitignore`, mas era escrita no fork, contra o que o script promete.
+
+**Não pôde ser testado aqui:** o `slangc` real. Ele está só na Ubuntu.
+
+Achado lateral: há 42 `.spv` Slang versionados e só 41 jobs. O órfão é `rasterize_backward.spv`, do *initial commit*, que **não é carregado** (`spirv_paths` só lista os índices 0 a 4). É arquivo morto.
+
+### Achado 2 — o item 2 do plano do adendo estava errado
+
+A seção de estado mandava fixar `-fp-mode precise` e `-denorm-mode-fp32 preserve` para D4. Evidência contra:
+- o upstream compila com `-stage compute -O -fp-mode fast -line-directive-mode none` (`compile_shaders.py:26`);
+- **nenhum dos 42 `.spv` Slang do upstream declara `SPV_KHR_float_controls`**;
+- os `.spv` do teste de 2026-09-24, compilados com `preserve`, declaravam.
+
+Fixar essas opções em D4 mudaria o binário por uma segunda razão. **Corrigido no adendo:** D4 usa as opções do upstream, e o modo de denormais fica declarado como limitação idêntica nos cinco degraus. Essa é uma das duas alternativas que o §10.8 já previa.
+
+### Achado 3 — o item 6 do plano estava errado, e ao contrário
+
+O plano proibia `clamp`/`min`/`max` antes do atômico, dizendo que isso reintroduziria não-associatividade. **Fui à especificação** (SPIR-V 1.6, Revision 8, *Last updated 2026-09-08*, acesso em 2026-09-25). Sobre `OpConvertFToS`, literal:
+
+> *"with round toward 0.0 […] Behavior is undefined if Result Type is not wide enough to hold the converted value."*
+
+Daí:
+- **sem `clamp` por termo, um termo fora do range é comportamento indefinido.** O item 6, como estava, proibia justamente a proteção necessária;
+- `clamp` por termo é função pura do termo, e a soma modular de funções puras dos termos continua independente da ordem. O que destruiria a associatividade é saturar o **acumulador**, por exemplo com um laço de compare-exchange com `min`/`max` sobre o valor armazenado;
+- **a conversão trunca.** Arredondamento ao mais próximo exige `round` explícito, o que confirma com fonte o que o caderno de 2026-09-22 argumentava sobre viés.
+
+A regra do adendo passa a ser: **exigir `clamp` por termo e proibir saturação do acumulador.** O erro não afetava resultado, porque nada foi implementado. Teria feito a implementação de D4 depender de comportamento indefinido.
+
+Na checagem da especificação, um regex meu acusou "aviso de obsolescência". **Conferi o trecho literal: era o changelog falando de `WorkgroupSize`.** A revisão 8 do caderno também foi confirmada, depois de outro regex meu falhar ao atravessar quebra de linha. Os dois são falsos alarmes meus, registrados porque o padrão de 2026-08-25 começou exatamente assim.
+
+### Achado 4 — a premissa do §10.1 confirmada no laço, não só na seleção do pipeline
+
+O `per_splat` escreve `v_pixel_state[pix_rank]` em memória compartilhada dentro do laço. Isso poderia ser corrida, o que invalidaria a premissa de determinismo da pré-redução. **Não é.** `per_splat.slang:138-178` é um pipeline em diagonal: no passo `i`, o splat `s` processa o pixel `p = i − s`. Há um único dono por pixel por passo e barreira em todo passo. A premissa favorece a tese, e por isso foi lida no código em vez de aceita.
+
+### Decisões de desenho registradas no adendo
+
+- Novo arquivo `d4_fixed_point.slang`, fonte única das escalas para produtor e consumidores.
+- **`config.slang`, `utils.slang` e `compile_shaders.py` intocados**, pela cascata de recompilação.
+- **Invariante V2:** o diff D3 → D4 contém exatamente 3 `.slang`, o arquivo novo e 3 `.spv` (`rasterize_backward_1`, `fused_projection_backward_optimizer`, `default_update_state`).
+- Escalas por componente, recalculadas dos JSON: `s` = 44, 44, 18, 18, 20, 34, 37, 37, 38, com folga de 2,1× a 2,8× sobre o máximo observado.
+- Sete desvios declarados (D-1 a D-7) e oito limitações.
+
+## Estado em 2026-09-25 — ponto de entrada para sessão nova
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
+>
+> **Nota de handoff (2026-09-25):** as entradas de 2026-09-22 a 2026-09-24 foram produzidas numa sessão paralela (fork da conversa principal, aberto para não sobrecarregar o contexto). A sessão principal não as viu. Tudo o que ela precisa está nesta seção e nas entradas datadas acima dela; nada relevante ficou só na conversa.
 
 ### Feito
 
@@ -1149,32 +1317,65 @@ Dois detalhes úteis para escrever o patch:
 - **Custo do determinismo medido:** D3 é 14% mais lento que D2.
 - Dados, manifestos de hash e logs versionados em `pivo-reprodutibilidade-3dgs/dados/<degrau>/`.
 - **Plano completo de D4** em `pre-registro.md` §10, com o conjunto exato de mudanças.
+- **Premissa de D4 confirmada no código** (2026-09-22): com o escalonamento desligado, `gs_renderer.cpp:345-346` fixa o backward em `pipeline_rasterize_backward[1]`, anotado `// per-splat backward`. Converter só `alphablend_shader_bwd_per_splat.slang` basta.
+- **§10.7 passo 1 feito** (2026-09-23): magnitude dos gradientes e K medidos em D3, 3 repetições × 16 steps, zero NaN/Inf. **Cabe em `int32`** com escala por componente. Dados em `pivo-reprodutibilidade-3dgs/dados/gradientes/`. Escalas propostas na entrada de 2026-09-23.
+- **§10.7 passo 2 feito** (2026-09-24): `slangc 2026.2.1` compila `InterlockedAdd` inteiro sobre `RWByteAddressBuffer` e emite **`OpAtomicIAdd` nativo**, sem emulação por compare-exchange; o ensaio dos 9 sítios gera exatamente 9 instruções. SHA-256 do asset registrado.
+- **Semântica de estouro ancorada na especificação SPIR-V** (2026-09-24): adição inteira é módulo `2^N`, sem saturação. Bit-identidade de D4 não depende da escala; a escala só afeta qualidade.
+
+### Onde estão as coisas (produzidas na sessão paralela)
+
+| o quê | onde |
+|---|---|
+| medição de gradientes (não toca o fork) | `experimentos/medir_gradientes_d4.py` |
+| teste da toolchain e das 6 variantes de atômico | `experimentos/testar_slang_atomic.sh` |
+| inspeção de SPIR-V sem `spirv-tools` | `experimentos/inspecionar_spirv.py` |
+| dados de gradientes, 3 repetições | `pivo-reprodutibilidade-3dgs/dados/gradientes/gradientes_rep0{0,1,2}.json` |
+| toolchain Slang, **só na Ubuntu** | `~/opt/slang-2026.2.1/bin/slangc` (fora de `/usr/local`, nada via apt) |
+| relatório e `.spv` do teste, **só na Ubuntu, não versionados** | `~/tcc-runs/slang-teste/` |
+| teste de reprodução dos `.spv` do upstream (T0) | `experimentos/reproduzir_spv_upstream.py` — **não executado ainda**; saída a copiar para `pivo-reprodutibilidade-3dgs/dados/toolchain/` |
+| adendo do estágio 2 | `pivo-reprodutibilidade-3dgs/pre-registro.md` §11, rascunho |
+| clone do fork para leitura, **no Mac** | `~/code/etc/vksplatTCC` — tags `D0`–`D3` conferidas contra os `env.json` |
 
 ### Em andamento
 
-- **Nada.** O ciclo N=30 foi executado na noite de 2026-09-21 e coletado. **Decisão tomada em 2026-09-22: não ampliar mais D0–D3** — a conta de poder mostra que as H3.x exigiriam N ≈ 95 por degrau. O tempo de máquina vai para D4.
+- **Nada executando.** Decisão de 2026-09-22 mantida: não ampliar D0–D3; o tempo de máquina vai para D4.
 
-### Defeito de dados aberto — decidir antes de ampliar N
+### Caminho crítico — D4, agora desbloqueado
 
-**D3 não é série homogênea:** `run000`–`run009` sob kernel `7.0.0-30-generic` (2026-09-09, boot `-1`), `run010`–`run019` sob `7.0.0-31-generic` (2026-09-20/21, boot `0`). D0, D1 e D2 são homogêneos em `-30` e **no mesmo boot**. Medianas dos dois blocos de D3 diferem só 0,0033 dB, mas o IQR quase dobra — indistinguível de ruído com N=10, e portanto **não afirmável em nenhum dos dois sentidos**. **Restringir D3 ao bloco homogêneo está proibido sem desvio declarado**, precisamente por ser o recorte favorável.
+Estado de `pre-registro.md` §10.7:
 
-**Gravidade rebaixada em 2026-09-21, por evidência:** o `dpkg.log` mostra que **nenhum pacote Mesa/Vulkan/libdrm mudou** na janela — o RADV foi o mesmo nas 80 execuções. A diferença entre os blocos de D3 é **somente o kernel**. E o dano não atinge as hipóteses sustentadas: D0 é 20/20 homogêneo, logo **H2 está limpa**; H1 é imune por construção; a heterogeneidade está confinada a D3, que entra nas H3.x, nenhuma das quais se sustentou. Ver a entrada "Histórico de pacotes lido".
+| passo | estado |
+|---|---|
+| 1. medir gradientes e K | **feito** 2026-09-23 |
+| 2. verificar SPIR-V de `InterlockedAdd` inteiro | **feito** 2026-09-24 |
+| 3. fixar escalas e **commitar o adendo do estágio 2** | **redigido em 2026-09-25** como `pre-registro.md` §11 (rascunho). **Bloqueado por T0:** rodar `experimentos/reproduzir_spv_upstream.py` na Ubuntu; só então commitar |
+| 4. implementar (4 arquivos Slang, zero C++), commitar como D4, registrar SHA | pendente — **3 `.slang` alterados + 1 novo**, ver §11.4 |
+| 5. rodar a série, verificar bit-identidade por hash | pendente |
 
-**Consequência para a série de ampliação, a decidir ANTES de disparar:** rodar `run020`–`run029` nos quatro degraus deixaria D0/D1/D2 com 20 execuções em `-30` e 10 em `-31`, e D3 com 10 em `-30` e 20 em `-31` — proporção de ambiente diferindo entre degraus. Rodar nos quatro simetricamente é melhor que rodar em alguns, porque dilui a assimetria em vez de aprofundá-la. Fator novo: `libc6` e `python3.12` mudaram em 2026-09-21 06:36, portanto o bloco de ampliação difere dos 80 anteriores também nisso.
+**O adendo (§11) contém, e dois itens mudaram em relação ao plano anterior:**
 
-**Lacuna de instrumentação: resolvida para séries futuras** — `run_degree.sh` grava `ambiente.json` com kernel, `boot_id`, Mesa, Vulkan, libdrm, libc6 e python por execução. Execuções até `D3/run019` seguem sem esse registro.
+1. as nove escalas por componente, recalculadas dos JSON, com `round` ao mais próximo **e `clamp` por termo em ±2147483520**;
+2. ~~`-fp-mode precise`, `-denorm-mode-fp32 preserve`~~ **CORRIGIDO: opções idênticas às do upstream** (`-O -fp-mode fast -line-directive-mode none`). Os `.spv` do upstream não declaram `float_controls`, e fixar `preserve` mudaria o binário por uma segunda razão. O modo de denormais fica declarado como limitação;
+3. desvio D-1: ponto de leitura;
+4. desvio D-2: medição em D3;
+5. desvio D-3: escalas fixadas depois da dispersão de D0–D3;
+6. ~~proibir `clamp`/`min`/`max` antes do atômico~~ **CORRIGIDO (D-4): exigir `clamp` por termo**, porque `OpConvertFToS` fora do range é comportamento indefinido, e **proibir saturação do acumulador**;
+7. `int` direto;
+8. dependência D2 → D4;
+9. **novo:** teste T0 e caminhos A/B, com controle D3c pré-registrado para o caminho B;
+10. **novo:** `config.slang`, `utils.slang` e `compile_shaders.py` intocados; invariante V2 sobre o diff D3 → D4.
 
-### Bloqueado — caminho crítico
+**Riscos que continuam abertos:**
 
-**D4.** É o experimento decisivo: se produzir hashes idênticos, a dispersão é **exatamente zero**, resultado categórico que dispensa teste e dissolve o problema de poder dos degraus intermediários.
+- **Execução no RADV não verificada.** Compilar não é executar; só a série de D4 responde.
+- **Termos individuais do acumulador não medidos**, só o acumulado. Tolerável porque a aritmética é modular; deixaria de ser se o wraparound não valer na execução real.
+- Não se verificou se a especificação **Vulkan** restringe algo sobre a semântica SPIR-V de adição inteira.
 
-Ordem de execução, em `pre-registro.md` §10.7:
+### Defeito de dados conhecido — declarar, não corrigir
 
-1. **Medir magnitude dos gradientes e distribuição de K.** **Não exige código nem a toolchain Slang** — `module.v_xy_vs`, `module.v_inv_cov_vs_opacity`, `module.v_rgb`, `module.tiles_touched` e `module.radii` já são expostos como numpy. **Pode começar imediatamente.**
-2. Baixar a Slang `v2026.2.1` e verificar que o `slangc` emite SPIR-V válido para `InterlockedAdd` inteiro sobre `RWByteAddressBuffer` — **risco técnico não mitigado, sem precedente no repositório**.
-3. Fixar as escalas por componente e commitar o adendo do estágio 2.
-4. Implementar (4 arquivos Slang, zero C++), commitar como D4, registrar o SHA.
-5. Rodar a série e verificar bit-identidade por hash.
+**D3 não é série homogênea:** três estratos de ambiente, dez execuções cada (kernel −30/boot −1/libc 8.8; −31/boot 0/libc 8.8; −31/boot 0/libc 8.9). D0, D1 e D2 têm dois estratos (20 + 10). **O Mesa/RADV foi o mesmo nas 120.** O dano não atinge as hipóteses sustentadas: H2 repousa em D0, H1 é imune por construção, e a heterogeneidade afeta as H3.x, nenhuma das quais se sustentou. **Restringir D3 a um estrato homogêneo está proibido sem desvio declarado**, por ser o recorte favorável. Detalhes nas entradas de 2026-09-21 e 2026-09-22.
+
+`run_degree.sh` e `coleta_serie.sh` gravam e coletam `ambiente.json` por execução desde 2026-09-21. **D4 deve rodar com esse registro ativo e sob o ambiente congelado.**
 
 ### Não estabelecido, e é limitação a declarar
 
@@ -1182,6 +1383,19 @@ Ordem de execução, em `pre-registro.md` §10.7:
 - **A variabilidade da própria medida de dispersão é da ordem do efeito buscado.** Em blocos de N=10 do mesmo degrau, o IQR de D3 vai de 0,0131 a 0,0477 (3,6×), e D1 no bloco 1 tem IQR maior que D0 no bloco 1, invertendo a ordenação que o desenho mede. É achado por si — a medida de reprodutibilidade não é reprodutível — e é a razão de fundo da falta de poder.
 - **H2 sustentada pelo critério (9,0% ≥ 5%), com margem reduzida.** O IC 95% bootstrap da fração é `[0,9% – 18,6%]` e **não** exclui 5%. O IC **não é o critério pré-registrado** e não pode ser tratado como tal; entra como declaração de incerteza.
 - **Anomalia de D2 dissolvida:** a razão de IQR D1→D2 caiu de 1,335 (N=20) para 1,102 (N=30), comportamento de ruído. Não exige mais explicação física; reportar como episódio.
+
+### Pendência institucional
+
+**O Prof. Gilvan não havia sido informado de nenhum dos quatro reenquadramentos.** Em 2026-09-22 o aluno relatou estar "se organizando com o professor Gilvan". **Não há registro de que a conversa tenha ocorrido nem do que foi decidido** — confirmar com o aluno e registrar aqui. Até lá, continua sendo o risco mais malcoberto do projeto.
+
+### Documentos desatualizados em relação a este caderno
+
+Não corrigidos na sessão paralela, para não editar fonte de verdade sem o aluno:
+
+- **`CLAUDE.md` da raiz** manda ler a seção "Estado em **2026-09-09**" — o nome desta seção mudou duas vezes desde então.
+- **`pivo-reprodutibilidade-3dgs/PLANO.md` §9** é "Estado atual (**2026-09-09**)": ainda diz 80 execuções, H2 a 14,2%, e D4 bloqueado pela toolchain.
+- **`PLANO.md` §2.1.1, §2.1.5 e §2.5**: ver pendência de texto 1 abaixo.
+- **`pre-registro.md` §10**: é rascunho travado; as correções entram pelo adendo do estágio 2, **não por edição**.
 
 ### Pendências de texto
 
@@ -1199,10 +1413,6 @@ Ordem de execução, em `pre-registro.md` §10.7:
 **Fechada em 2026-09-24:** SHA-256 do asset da Slang = `c2a05fa8643d45acf4662d7d18925ee239b16ba934da310c6cfece77dafe1927`.
 
 **Nenhum capítulo escrito.**
-
-### Pendência institucional
-
-**O Prof. Gilvan não foi informado de nenhum dos quatro reenquadramentos.** É o risco mais malcoberto do projeto, e o único que não depende de nada técnico.
 
 ### O que NÃO pode ser afirmado
 
@@ -1223,3 +1433,12 @@ Ordem de execução, em `pre-registro.md` §10.7:
 - Que *"eles mostraram que o protocolo compromete a comparabilidade; este trabalho mostra que, mesmo com protocolo idêntico, a execução também compromete"*. **Não vale para a v2 do NerfBaselines, que mostra as duas coisas.** Reescrever `PLANO.md` §2.1.5.
 - Que FreeTimeGS++ se distingue deste TCC nas quatro dimensões pretendidas **na formulação forte**. Objeto, causa e intervenção sustentam-se; a dimensão de seed está **estreitada** e precisa ser redigida como "seed fixa × seed variável com inicialização fixa".
 - Que `percent_dense=1e-5` consta do corpo da issue #89. **Contestado e não reconferido.**
+- Que **a especificação SPIR-V diz que `OpAtomicIAdd` faz wraparound**. Ela diz que `OpAtomicIAdd` faz *"integer addition"*, e que `OpIAdd` produz os *"low-order N bits"*. A conclusão é composição de duas cláusulas; redigir assim.
+- Que **D4 funciona**. Compila e emite a instrução certa; **nunca foi executado**.
+- Que **D4 elimina a dependência de `VK_EXT_shader_atomic_float`**. Elimina **no shader `per_splat`**; as outras variantes de backward e `morton_sort.slang` continuam exigindo a extensão.
+- Que **o acumulador nunca estoura**. Só o gradiente acumulado foi medido, não os termos; e o máximo observado em 3 execuções não é o máximo possível.
+- Que a medição de gradientes usou a estratégia de instrumentação X. **Não se sabe** qual das duas ficou ativa: o script não a gravava no JSON e o terminal foi perdido. Corrigido para execuções futuras.
+- Que **a conversa com o Prof. Gilvan ocorreu**. Não há registro.
+- Que **D0–D3 e D4 foram compilados pelo mesmo compilador**. D0–D3 executaram os `.spv` do upstream, de versão de Slang desconhecida (`generator` versão 0). D4 será compilado pelo nosso `slangc 2026.2.1`. Só T0 diz se os bytes coincidem.
+- Que **`clamp` antes do atômico quebra a associatividade**. `clamp` **por termo** não quebra, e é exigido para evitar o comportamento indefinido de `OpConvertFToS`. O que quebra é saturar o **acumulador**.
+- Que **o modo de denormais foi controlado** em algum degrau. Não foi: é *"implementation defined"* nos cinco, por decisão de não alterar as opções do upstream.
