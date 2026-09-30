@@ -1300,6 +1300,114 @@ O `per_splat` escreve `v_pixel_state[pix_rank]` em memória compartilhada dentro
 - Escalas por componente, recalculadas dos JSON: `s` = 44, 44, 18, 18, 20, 34, 37, 37, 38, com folga de 2,1× a 2,8× sobre o máximo observado.
 - Sete desvios declarados (D-1 a D-7) e oito limitações.
 
+## 2026-09-25 — T0 executado: **o `slangc 2026.2.1` reproduz bit a bit os `.spv` do upstream**
+
+Executado na Ubuntu, com o fork em D3 e `LD_LIBRARY_PATH` removido. Saída literal:
+
+```
+slangc: 2026.2.1
+jobs Slang: 41  ->  {'IDENTICO': 41}
+grupos que D4 altera: 16/16 identicos ao upstream
+VEREDITO T0: REPRODUZ o upstream: o compilador NAO e fator de confusao
+relatorio: /home/fabio/tcc-runs/spv-repro/reproducao.json
+```
+
+**Consequência:** vale o **caminho A** do `pre-registro.md` §11.5. D4 difere de D3 só na fonte dos 3 `.slang` e no arquivo novo. O controle D3c **não se aplica**. A comparação D3 × D4 de tempo e qualidade não fica confundida pelo compilador.
+
+**O que o resultado permite e não permite dizer:**
+- Permite dizer que o nosso compilador, com as opções do upstream, gera exatamente os mesmos bytes a partir das fontes de D3, nos 41 jobs Slang.
+- **Não prova** que o upstream usou a versão 2026.2.1. Prova que usou uma versão que gera a mesma saída para essas fontes. Isso é consistente com o README do VkSplat (`README.md:112` em D3, literal: *"Tested with `slang-2026.2.1-linux-x86_64`, other versions may also work"*, conferido em 2026-09-25), mas é consistência e não prova.
+- Não cobre os 3 `.spv` do `radix_sort`, gerados pelo `glslc`. D4 não os toca.
+
+**Escrutínio pendente, por ser resultado favorável.** O terminal mostra só a contagem. Antes de o §11 ser commitado, conferir no `reproducao.json` que:
+- os 41 `sha256_nosso` são **distintos entre si** (não é um mesmo arquivo comparado 41 vezes);
+- `bytes_nosso` é igual a `bytes_upstream` e não nulo;
+- `returncode` é 0 em todos;
+- `stdout_stderr` está vazio (sem avisos do compilador).
+
+O script já garante as duas primeiras condições por construção, porque compara o arquivo gerado em diretório temporário com o versionado. A conferência no dado é a prova, e a garantia do código não a substitui.
+
+**Conferido em 2026-09-30**, depois de o JSON entrar em `2f2ad65`:
+- 41 `sha256` distintos entre si;
+- nosso = upstream em todos;
+- tamanhos iguais, de 1.624 a 148.488 bytes;
+- `returncode` 0 e saída do compilador vazia em todos.
+
+**A ordem dos eventos é demonstrável pelo git:** o §11 com os dois caminhos entrou em `02722af` às 17:57:49 −03, e o T0 foi gerado às 18:01:26 −03 (`gerado_em` = 21:01:26Z), 3 min 37 s depois. Registrado no `pre-registro.md` §11.10, acrescentado sem editar §11.1–§11.9. **Com o commit do §11.10, o adendo fica vinculante para D4.**
+
+## 2026-09-25/30 — `.ply` de D0–D3 movidos para o HD externo, verificados por hash
+
+**Motivo.** Havia 17–21 GB livres no SSD, contra ~15 GB necessários só para as saídas de D4 com N=10 (1,51 GB por execução, pela soma de `dir_total_bytes` dos manifestos). Os diretórios de D0–D3 somam 181,3 GB, dos quais 164,0 GB são `splat.ply`.
+
+**Decisão:** mover os artefatos **antigos** e manter os **novos** no SSD. D4 grava no mesmo disco e no mesmo caminho que D0–D3 (`~/tcc-runs/series/`), para não introduzir um fator evitável. Um disco USB que desconecta no meio da série derrubaria execuções.
+
+**Destino:** `/media/fabio/Seagate Expansion Drive/tcc-runs-arquivo/`, `/dev/sda1`, **NTFS via `ntfs3`**, 932 GB, 550 GB livres antes da cópia.
+
+**Procedimento:**
+- `rsync -rt`, e não `-a`: o NTFS não guarda dono e permissões Unix, e `-a` produziria erros espúrios que esconderiam um erro real;
+- conferência do `sha256` de cada `splat.ply` copiado contra o `manifest.tsv` versionado;
+- remoção **só dos `splat.ply`** do SSD, e só se o degrau desse exatamente 30 ok e 0 falhas;
+- JSON, logs e PNG permaneceram no SSD.
+
+**Evidência:**
+- D0: `rsync` saiu com 0 (45.198.560.907 bytes, 912 arquivos); verificação **30 ok, 0 falhas**.
+- D1–D3: laço com a trava automática. As linhas por degrau não foram transmitidas. A evidência indireta é `find ~/tcc-runs/series -name splat.ply` = **0** no SSD e **120** no HD. Como o laço só apagava depois de 30/30, zero no SSD implica que a trava passou nos três.
+- `df -h /` depois: 245G, 73G usados, **160G livres**.
+
+Um susto de colagem foi conferido e descartado: no texto colado faltavam `$`, o que poderia significar cópia para `dados/D0/DEST/` dentro do repositório. `ls -d` confirmou que esse diretório não existe, e o uso de disco é incompatível com 45 GB extras.
+
+**Consequência para o §7 do pré-registro:** os `.ply` de D0–D3 têm hoje **cópia única**, num HD USB, contra o *"disco local e cópia em nuvem"* previsto. H1 continua verificável pelos hashes versionados. Mas perder o HD eliminaria a possibilidade de reconferir contra os arquivos, e de fazer as análises secundárias do §4 (diferenças por parâmetro entre pares). **Pendência:** cópia em nuvem, com o local registrado aqui.
+
+**Não verificado:** a identidade dos dois volumes SSD internos desmontados (731 GB e 499 GB). O de 499 GB pode ser a *"partição extensível a ~500 GB"* do §7. `lsblk -f` não foi executado.
+
+## 2026-09-30 — Patch de D4 escrito e verificador pronto; **nada compilado com o `slangc` real ainda**
+
+Escrito no Mac, no clone de leitura, branch local `d4-rascunho` criada a partir de D3, **sem commit**. Entregáveis no repositório do TCC:
+- `experimentos/d4/d4.patch`, com 207 linhas;
+- `experimentos/compilar_d4.py`.
+
+### O patch, conforme `pre-registro.md` §11.4
+
+`+119/−24` em 4 arquivos, todos em `vksplat/slang/`:
+
+| arquivo | mudança |
+|---|---|
+| `d4_fixed_point.slang` (novo) | 9 escalas `2^s`, 9 inversos `2^−s`, `D4_LIM = 2147483520.0`; `d4_quantizar(v,s) = int(round(clamp(v·s, −L, L)))`; três funções de desquantização |
+| `alphablend_shader_bwd_per_splat.slang` | `#include` do novo arquivo; macro `_ATOMIC_ADD_FIXED` substitui o bloco `#if USE_EMULATED_F32_ATOMIC` (`:183-189`); 9 sítios com escala por sítio |
+| `fused_projection_backward_optimizer.slang` | bindings 5/6/7 para `int2`/`int4`/`int`; desquantização em `:110-115`; `rgb` lido localmente, sem `read_t3_float3` |
+| `default.slang` | `#include` **dentro** do bloco `#if DEFAULT_PHASE == UpdateState`, para as outras 8 fases não verem o arquivo; binding 0 para `int2`; desquantização em `:70` |
+
+Intocados: `config.slang`, `utils.slang`, `compile_shaders.py` e todo o C++.
+
+### Decisões tomadas lendo o código, não supondo
+
+- **A forma da chamada atômica é a que já compilou.** `buffer.InterlockedAdd(endereço, asuint(int))` é a forma do ensaio `v5_nove_sitios` de 2026-09-24, que gerou `OpAtomicIAdd` ×9. O endereço usa `(address)*sizeof(float)`, a expressão do código original, já aceita pelo `slangc` neste arquivo. Uma primeira versão minha usava `sizeof(int32_t)`, forma não verificada, e foi revertida.
+- **`rgb_b` usa `2^38`, o valor do adendo**, e não os `2^37` usados para os três canais no ensaio `v5`.
+- **Literais das constantes gerados por script.** Cada um foi conferido: lido como `float32`, dá exatamente `2^s`, e `D4_LIM` é o maior `float32` abaixo de `2^31`. Escala divergente entre produtor e consumidor seria erro silencioso.
+- **O produtor afeta só `rasterize_backward_1`.** `alphablend_shader.slang:284-285` inclui o `per_splat` apenas quando `BACKWARD_MODE == PER_SPLAT`.
+- **Zero C++, reconfirmado.** O C++ declara os buffers como `Buffer<float>` (`buffer.h:116-119`), o que só determina o tamanho: 4 bytes por elemento, o mesmo de `int32`. Além disso, só zera, faz barreira e vincula. `tcc-base` = D3 = `d222c47182…`, então D4 entra em cadeia linear.
+- `g_idx` no otimizador é `uint` (`:95`), o mesmo tipo que o `read_t3_float3` recebia. A indexação `3*g_idx+k` é idêntica à original.
+
+### O verificador, `compilar_d4.py`
+
+Compila os 16 jobs dos 3 grupos com o comando de T0 e executa V2, V3 e V4 do §11.6. **Não commita.** Aborta se o fork não estiver exatamente em "D3 + fontes de D4".
+
+**Todos os números de instrução foram conferidos literalmente nas especificações**, baixadas de novo para `/tmp` porque a cópia de 25/09 tinha sido apagada:
+- SPIR-V 1.6 rev. 8: `OpExtInstImport` = 11, `OpExtInst` = 12, `OpConvertFToS` = 110, `OpConvertSToF` = 111, `OpAtomicIAdd` = 234.
+- GLSL.std.450, rev. 17: `Round` = 1, `RoundEven` = 2, `FMin` = 37, `FMax` = 40, `FClamp` = 43, `NMin` = 79, `NMax` = 80, `NClamp` = 81.
+
+Nessa leitura, três regex meus deram resultado errado ou cortado. `Round` e `RoundEven` saíram com o texto trocado, e `OpExtInst*` escapou porque o número de palavras é variável. **Os três foram resolvidos lendo o trecho literal**, e nenhum número entrou no script por regex não conferido.
+
+Sobre `Round`, literal: *"The fraction 0.5 rounds in a direction chosen by the implementation"*. Coerente com o §11.2, que declara a regra de desempate irrelevante para H3.4.
+
+### Testes feitos aqui, e o que eles não cobrem
+
+- **Parser validado em dados reais.** Nos `.spv` de D3, o `rasterize_backward_1` mostra **exatamente 9 `OpAtomicFAddEXT`** e `SPV_EXT_shader_atomic_float_add`, que são os 9 sítios substituídos. Os dois consumidores não têm atômico nenhum, o que dá a linha de base de V4.
+- **Patch** aplica limpo com `git apply --check` num clone descartável em `tcc-base` = D3, e o conteúdo aplicado é idêntico ao rascunho.
+- **Caminho negativo.** Com um `slangc` falso que devolve os bytes de D3, **todos** os critérios de D4 falham, e o código de saída é 2, "não commitar". Não há aprovação por engano.
+- **Pré-condição.** Um arquivo intruso na árvore faz o script abortar antes de compilar.
+- **Não testado:** o caminho positivo e a própria compilação. Exigem o `slangc` real, que só existe na Ubuntu. É o primeiro ponto em que o patch pode falhar, e erro de compilação é resultado barato.
+
 ## Estado em 2026-09-25 — ponto de entrada para sessão nova
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
@@ -1348,8 +1456,8 @@ Estado de `pre-registro.md` §10.7:
 |---|---|
 | 1. medir gradientes e K | **feito** 2026-09-23 |
 | 2. verificar SPIR-V de `InterlockedAdd` inteiro | **feito** 2026-09-24 |
-| 3. fixar escalas e **commitar o adendo do estágio 2** | **redigido em 2026-09-25** como `pre-registro.md` §11 (rascunho). **Bloqueado por T0:** rodar `experimentos/reproduzir_spv_upstream.py` na Ubuntu; só então commitar |
-| 4. implementar (4 arquivos Slang, zero C++), commitar como D4, registrar SHA | pendente — **3 `.slang` alterados + 1 novo**, ver §11.4 |
+| 3. fixar escalas e **commitar o adendo do estágio 2** | **feito.** §11.1–§11.9 em `02722af` (2026-09-25); T0 com 41/41 idênticos, caminho A, JSON em `2f2ad65`; §11.10, com o resultado e a vinculação, redigido em 2026-09-30 **e ainda não commitado** |
+| 4. implementar (4 arquivos Slang, zero C++), commitar como D4, registrar SHA | **patch escrito em 2026-09-30** (`experimentos/d4/d4.patch`) e verificador pronto (`experimentos/compilar_d4.py`). Falta: aplicar e compilar na Ubuntu, passar V2/V3/V4, commitar e criar a tag `D4` |
 | 5. rodar a série, verificar bit-identidade por hash | pendente |
 
 **O adendo (§11) contém, e dois itens mudaram em relação ao plano anterior:**

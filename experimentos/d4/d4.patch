@@ -1,0 +1,207 @@
+diff --git a/vksplat/slang/alphablend_shader_bwd_per_splat.slang b/vksplat/slang/alphablend_shader_bwd_per_splat.slang
+index 8dc6235..8448636 100644
+--- a/vksplat/slang/alphablend_shader_bwd_per_splat.slang
++++ b/vksplat/slang/alphablend_shader_bwd_per_splat.slang
+@@ -1,6 +1,9 @@
+ #undef SUBTILE_SIZE
+ #define SUBTILE_SIZE 0
+ 
++// D4: escalas e quantizacao de ponto fixo (pre-registro.md §11 do TCC).
++#include "d4_fixed_point.slang"
++
+ // Time: (T/P) * (N+S)/S * (P+S)
+ // P: larger is better, up to TILE_SIZE
+ // S: closer to sqrt(N*P) is better
+@@ -180,23 +183,30 @@ void main(
+             v_rgb += dp_g.d.rgb;
+         }
+ 
+-      #if USE_EMULATED_F32_ATOMIC
+-        #define _ATOMIC_ADD(buffer, address, value) \
+-            if (value != 0.0) AtomicAddFloat(buffer, (address)*sizeof(float), value);
+-      #else
+-        #define _ATOMIC_ADD(buffer, address, value) \
+-            if (value != 0.0) buffer.InterlockedAddF32((address)*sizeof(float), value);
+-      #endif
++      // D4: a soma atomica em float32 (InterlockedAddF32 / AtomicAddFloat) foi
++      // substituida por soma atomica INTEIRA de 32 bits sobre o termo quantizado.
++      // A adicao inteira SPIR-V e modular 2^32, logo associativa e comutativa: o
++      // valor acumulado independe da ordem das invocacoes. A pre-reducao acima
++      // (v_xy_vs += ...) e sequencial por thread, em ordem fixa, e continua em float.
++      // Os bytes sao os mesmos buffers de antes, reinterpretados como int32; o
++      // zeramento (vkCmdFillBuffer 0) vale para int32. Consumidores:
++      // fused_projection_backward_optimizer.slang (bindings 5/6/7) e default.slang
++      // (UpdateState), que desquantizam com as mesmas escalas.
++        // Endereco em bytes: sizeof(float) == sizeof(int32) == 4; mantida a forma
++        // do codigo original, comprovadamente aceita pelo slangc neste arquivo.
++        #define _ATOMIC_ADD_FIXED(buffer, address, value, ESCALA) \
++            { int d4_q = d4_quantizar(value, ESCALA); \
++              if (d4_q != 0) buffer.InterlockedAdd((address)*sizeof(float), asuint(d4_q)); }
+         if (active) {
+-            _ATOMIC_ADD(out_v_xy_vs, 2*splat_id+0, v_xy_vs.x);
+-            _ATOMIC_ADD(out_v_xy_vs, 2*splat_id+1, v_xy_vs.y);
+-            _ATOMIC_ADD(out_v_inv_cov_vs_opacity, 4*splat_id+0, v_inv_cov_vs_opacity.x);
+-            _ATOMIC_ADD(out_v_inv_cov_vs_opacity, 4*splat_id+1, v_inv_cov_vs_opacity.y);
+-            _ATOMIC_ADD(out_v_inv_cov_vs_opacity, 4*splat_id+2, v_inv_cov_vs_opacity.z);
+-            _ATOMIC_ADD(out_v_inv_cov_vs_opacity, 4*splat_id+3, v_inv_cov_vs_opacity.w);
+-            _ATOMIC_ADD(out_v_rgb, 3*splat_id+0, float(v_rgb.x));
+-            _ATOMIC_ADD(out_v_rgb, 3*splat_id+1, float(v_rgb.y));
+-            _ATOMIC_ADD(out_v_rgb, 3*splat_id+2, float(v_rgb.z));
++            _ATOMIC_ADD_FIXED(out_v_xy_vs, 2*splat_id+0, v_xy_vs.x, D4_ESC_XY_X);
++            _ATOMIC_ADD_FIXED(out_v_xy_vs, 2*splat_id+1, v_xy_vs.y, D4_ESC_XY_Y);
++            _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+0, v_inv_cov_vs_opacity.x, D4_ESC_CONIC_0);
++            _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+1, v_inv_cov_vs_opacity.y, D4_ESC_CONIC_1);
++            _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+2, v_inv_cov_vs_opacity.z, D4_ESC_CONIC_2);
++            _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+3, v_inv_cov_vs_opacity.w, D4_ESC_OPACITY);
++            _ATOMIC_ADD_FIXED(out_v_rgb, 3*splat_id+0, float(v_rgb.x), D4_ESC_RGB_R);
++            _ATOMIC_ADD_FIXED(out_v_rgb, 3*splat_id+1, float(v_rgb.y), D4_ESC_RGB_G);
++            _ATOMIC_ADD_FIXED(out_v_rgb, 3*splat_id+2, float(v_rgb.z), D4_ESC_RGB_B);
+         }
+ 
+     }  // for (int i = 0; i < rounds; i++)
+diff --git a/vksplat/slang/d4_fixed_point.slang b/vksplat/slang/d4_fixed_point.slang
+new file mode 100644
+index 0000000..ae70084
+--- /dev/null
++++ b/vksplat/slang/d4_fixed_point.slang
+@@ -0,0 +1,73 @@
++// d4_fixed_point.slang -- degrau D4 do TCC (reprodutibilidade em treino de 3DGS)
++//
++// Acumulacao em PONTO FIXO dos 9 gradientes do backward per-splat. Substitui a
++// adicao atomica em float32 (nao associativa) por adicao atomica inteira de 32
++// bits (OpAtomicIAdd), que e modular 2^32 e portanto associativa e comutativa:
++// o resultado independe da ordem das invocacoes.
++//
++// Especificacao vinculante: pre-registro.md §11 do repositorio do TCC
++// (github.com/fabio-gabriel/tcc). Base: tag D3, d222c47182f5917be0cc209f19d3257e1ebad17e.
++//
++// Incluido por: alphablend_shader_bwd_per_splat.slang (produtor),
++// fused_projection_backward_optimizer.slang e default.slang (consumidores).
++// Fonte UNICA das escalas: escala divergente entre produtor e consumidor seria
++// erro silencioso de correcao. NAO editar sem novo adendo datado.
++//
++// Escalas: s = floor(log2(2^30 / max observado)), dados de 3 execucoes x 16
++// steps em D3 (dados/gradientes/ no repositorio do TCC). Literais gerados por
++// script e conferidos: cada um le exatamente como 2^s / 2^-s em float32.
++
++#ifndef D4_FIXED_POINT_SLANG
++#define D4_FIXED_POINT_SLANG
++
++static const float D4_ESC_XY_X     = 17592186044416.0;  // 2^44
++static const float D4_ESC_XY_Y     = 17592186044416.0;  // 2^44
++static const float D4_ESC_CONIC_0  = 262144.0;  // 2^18
++static const float D4_ESC_CONIC_1  = 262144.0;  // 2^18
++static const float D4_ESC_CONIC_2  = 1048576.0;  // 2^20
++static const float D4_ESC_OPACITY  = 17179869184.0;  // 2^34
++static const float D4_ESC_RGB_R    = 137438953472.0;  // 2^37
++static const float D4_ESC_RGB_G    = 137438953472.0;  // 2^37
++static const float D4_ESC_RGB_B    = 274877906944.0;  // 2^38
++
++static const float D4_INV_XY_X     = 5.684341886080802e-14;  // 2^-44
++static const float D4_INV_XY_Y     = 5.684341886080802e-14;  // 2^-44
++static const float D4_INV_CONIC_0  = 3.814697265625e-06;  // 2^-18
++static const float D4_INV_CONIC_1  = 3.814697265625e-06;  // 2^-18
++static const float D4_INV_CONIC_2  = 9.5367431640625e-07;  // 2^-20
++static const float D4_INV_OPACITY  = 5.820766091346741e-11;  // 2^-34
++static const float D4_INV_RGB_R    = 7.275957614183426e-12;  // 2^-37
++static const float D4_INV_RGB_G    = 7.275957614183426e-12;  // 2^-37
++static const float D4_INV_RGB_B    = 3.637978807091713e-12;  // 2^-38
++
++// Maior float32 abaixo de 2^31 (espacamento 128 perto de 2^31); exato em float32.
++static const float D4_LIM = 2147483520.0;
++
++// Quantizacao de UM termo. round antes da conversao: OpConvertFToS trunca
++// ("round toward 0.0"), e truncar e vies sistematico. clamp antes da conversao:
++// fora do range, OpConvertFToS e comportamento indefinido (SPIR-V 1.6 rev. 8).
++// clamp POR TERMO e funcao pura do termo e preserva a associatividade da soma
++// modular. PROIBIDO: saturar o ACUMULADOR (laco de compare-exchange com
++// min/max sobre o valor armazenado) -- isso destroi a associatividade e o degrau.
++int d4_quantizar(float v, float escala)
++{
++    return int(round(clamp(v * escala, -D4_LIM, D4_LIM)));
++}
++
++float2 d4_desq_xy(int2 q)
++{
++    return float2(float(q.x) * D4_INV_XY_X, float(q.y) * D4_INV_XY_Y);
++}
++
++float4 d4_desq_conic_opacity(int4 q)
++{
++    return float4(float(q.x) * D4_INV_CONIC_0, float(q.y) * D4_INV_CONIC_1,
++                  float(q.z) * D4_INV_CONIC_2, float(q.w) * D4_INV_OPACITY);
++}
++
++float3 d4_desq_rgb(int r, int g, int b)
++{
++    return float3(float(r) * D4_INV_RGB_R, float(g) * D4_INV_RGB_G, float(b) * D4_INV_RGB_B);
++}
++
++#endif // D4_FIXED_POINT_SLANG
+diff --git a/vksplat/slang/default.slang b/vksplat/slang/default.slang
+index 907e432..4aafbba 100644
+--- a/vksplat/slang/default.slang
++++ b/vksplat/slang/default.slang
+@@ -46,7 +46,11 @@ struct Uniforms {
+ 
+ #if DEFAULT_PHASE == DEFAULT_PHASE_UpdateState
+ 
+-layout(binding=0) StructuredBuffer<float2> v_xy_vs;  // (N, 2)
++// D4: v_xy_vs chega em ponto fixo (int32) do backward per-splat; desquantizado
++// com as escalas de d4_fixed_point.slang. Include DENTRO deste bloco para que
++// as outras 8 fases de default.slang nao sejam afetadas (pre-registro §11.4).
++#include "d4_fixed_point.slang"
++layout(binding=0) StructuredBuffer<int2> v_xy_vs;  // (N, 2), ponto fixo
+ layout(binding=1) StructuredBuffer<int32_t> radii;  // (N,)
+ 
+ layout(binding=2) RWStructuredBuffer<float2> running_grad;  // (N, 2)
+@@ -67,7 +71,7 @@ void updateState(
+     const float width = float(uniforms.image_width);
+     const float height = float(uniforms.image_height);
+ 
+-    float grad = 0.5 * length(v_xy_vs[gid] * float2(width, height));
++    float grad = 0.5 * length(d4_desq_xy(v_xy_vs[gid]) * float2(width, height));
+     float radius = float(radii[gid]) / max(width, height);
+ 
+     if (radius > 0.0) {
+diff --git a/vksplat/slang/fused_projection_backward_optimizer.slang b/vksplat/slang/fused_projection_backward_optimizer.slang
+index 5621e45..efbe71a 100644
+--- a/vksplat/slang/fused_projection_backward_optimizer.slang
++++ b/vksplat/slang/fused_projection_backward_optimizer.slang
+@@ -13,9 +13,14 @@ layout(binding=3) RWStructuredBuffer<float4> scales_opacs;  // 4
+ 
+ layout(binding=4) StructuredBuffer<int> tiles_touched;
+ 
+-layout(binding=5) StructuredBuffer<float2> v_output_xy_vs;
+-layout(binding=6) StructuredBuffer<float4> v_output_inv_cov_vs;
+-layout(binding=7) StructuredBuffer<float> v_output_rgb;
++// D4: os gradientes acumulados pelo backward per-splat chegam em ponto fixo
++// (int32), nao em float. Mesmos buffers e mesmo stride de antes (int2/int4/int
++// tem o tamanho de float2/float4/float); a desquantizacao usa as escalas de
++// d4_fixed_point.slang, fonte unica compartilhada com o produtor.
++#include "d4_fixed_point.slang"
++layout(binding=5) StructuredBuffer<int2> v_output_xy_vs;
++layout(binding=6) StructuredBuffer<int4> v_output_inv_cov_vs;
++layout(binding=7) StructuredBuffer<int> v_output_rgb;
+ 
+ // Optimizer buffers
+ layout(binding=8) RWStructuredBuffer<float> g_xyz_ws;  // 2*3
+@@ -107,12 +112,15 @@ void main(
+     };
+ 
+     // backward
+-    float2 v_out_xy_vs = is_zero_grad ? float2(0) : v_output_xy_vs[g_idx];
++    // D4: desquantizacao. read_t3_float3 (utils.slang) le StructuredBuffer<float>;
++    // a leitura dos 3 inteiros de rgb e feita aqui, localmente, para nao tocar em
++    // utils.slang, que e dependencia de grupos alheios a D4 (pre-registro §11.4).
++    float2 v_out_xy_vs = is_zero_grad ? float2(0) : d4_desq_xy(v_output_xy_vs[g_idx]);
+     float4 v_out_inv_cov_vs_opac = is_zero_grad ? float4(0) :
+-      v_output_inv_cov_vs[g_idx];
++      d4_desq_conic_opacity(v_output_inv_cov_vs[g_idx]);
+     float v_out_depths = 0.0;
+     float3 v_out_rgb = is_zero_grad ? float3(0) :
+-      float3(read_t3_float3(g_idx, v_output_rgb));
++      d4_desq_rgb(v_output_rgb[3*g_idx+0], v_output_rgb[3*g_idx+1], v_output_rgb[3*g_idx+2]);
+ 
+     Splat_2D_Vertex v_splat = {
+         float3(v_out_xy_vs, v_out_depths),  // xyz_vs

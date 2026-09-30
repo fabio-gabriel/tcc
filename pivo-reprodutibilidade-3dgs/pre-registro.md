@@ -521,3 +521,23 @@ Uma execução que falhar antes de produzir `splat.ply` é de encanamento: é de
 6. **Dependência D2 → D4.** A intervenção cobre uma das três variantes de backward e só é completa porque D2 é cumulativo.
 7. **`VK_EXT_shader_atomic_float` continua exigida** pelo dispositivo, pelas outras variantes de backward e pelo `morton_sort.slang`. D4 a elimina só do `.spv` do `per_splat`.
 8. **O script de medição de gradientes não serve para D4 sem adaptação:** ele lê os buffers como `float`, e em D4 eles contêm inteiros.
+
+### 11.10 Registro datado — 2026-09-30: resultado de T0 e vinculação deste adendo
+
+> Entrada **acrescentada** depois do commit `02722af`, que introduziu §11.1–§11.9. Nenhuma linha de §11.1–§11.9 foi alterada. É o único mecanismo legítimo, conforme §0.1.
+
+**Ordem dos eventos, verificável pelo histórico.** §11.1–§11.9, incluindo os dois caminhos de §11.5, entraram no commit `02722af`, às 2026-09-25T17:57:49−03:00. O teste T0 foi gerado às 2026-09-25T21:01:26Z, isto é, 18:01:26−03:00, **3 min 37 s depois**: é o campo `gerado_em` de `dados/toolchain/reproducao.json`, versionado em `2f2ad65`. Os dois caminhos foram portanto fixados antes de o resultado existir.
+
+**Resultado de T0.** O `slangc 2026.2.1`, com as opções do upstream, recompilou as fontes inalteradas de D3 (`d222c47182…`) nos 41 jobs Slang. Os **41** saíram **bit-idênticos** aos `.spv` versionados, e os 16 dos grupos que D4 altera também. Conferências feitas no JSON:
+- os 41 `sha256` gerados são distintos entre si;
+- tamanhos iguais aos de referência, de 1.624 a 148.488 bytes;
+- `returncode` 0 em todos;
+- nenhuma saída do compilador.
+
+**Vale o caminho A de §11.5.** D4 difere de D3 apenas nas fontes listadas em §11.4. O controle D3c não se aplica. A comparação D3 × D4 de tempo e qualidade não é confundida pelo compilador.
+
+Não se afirma que o upstream usou a mesma versão do `slangc`. Afirma-se que ele usou uma versão que produz a mesma saída para estas fontes, o que é consistente com o `README.md:112` do VkSplat: *"Tested with `slang-2026.2.1-linux-x86_64`"*.
+
+**Vinculação.** Com esta entrada, §11 passa a ser **vinculante para D4**. O estado "RASCUNHO" no cabeçalho de §11 refere-se ao momento de `02722af` e não é editado.
+
+**Pendente, em entrada datada posterior:** o SHA do commit de D4 no fork, e o resultado de V1–V4 (§11.6), antes da primeira execução medida.
