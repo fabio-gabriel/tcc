@@ -1,0 +1,240 @@
+{
+  "gerado_em": "2026-09-30T22:05:38.534869+00:00",
+  "proposito": "pre-registro §11.6 — verificacoes V2/V3/V4 de D4, antes do commit",
+  "base": "d222c47182f5917be0cc209f19d3257e1ebad17e",
+  "slangc": "/home/fabio/opt/slang-2026.2.1/bin/slangc",
+  "slangc_versao": "2026.2.1",
+  "args_slangc": [
+    "-stage",
+    "compute",
+    "-O",
+    "-fp-mode",
+    "fast",
+    "-line-directive-mode",
+    "none"
+  ],
+  "compilados": [
+    {
+      "job": "default_update_state",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_compute_grow_mask",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_duplicate",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_split",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_compute_prune_mask",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_prune",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_prune_mean",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_prune_sh",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "default_reset_opa",
+      "grupo": "default.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "fused_projection_backward_optimizer",
+      "grupo": "fused_projection_backward_optimizer.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "rasterize_forward",
+      "grupo": "alphablend_shader.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "rasterize_backward_0",
+      "grupo": "alphablend_shader.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "rasterize_backward_1",
+      "grupo": "alphablend_shader.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "rasterize_backward_2",
+      "grupo": "alphablend_shader.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "rasterize_backward_3",
+      "grupo": "alphablend_shader.slang",
+      "returncode": 0,
+      "saida": ""
+    },
+    {
+      "job": "rasterize_backward_4",
+      "grupo": "alphablend_shader.slang",
+      "returncode": 0,
+      "saida": ""
+    }
+  ],
+  "V2": {
+    "ok": true,
+    "alterados": [
+      "vksplat/shader/generated/default_update_state.spv",
+      "vksplat/shader/generated/fused_projection_backward_optimizer.spv",
+      "vksplat/shader/generated/rasterize_backward_1.spv",
+      "vksplat/slang/alphablend_shader_bwd_per_splat.slang",
+      "vksplat/slang/d4_fixed_point.slang",
+      "vksplat/slang/default.slang",
+      "vksplat/slang/fused_projection_backward_optimizer.slang"
+    ],
+    "extra": [],
+    "faltando": []
+  },
+  "V3": {
+    "ok": true,
+    "itens": {
+      "OpAtomicIAdd == 9": true,
+      "OpAtomicFAddEXT == 0": true,
+      "sem SPV_EXT_shader_atomic_float_add": true,
+      "arredondamento aumentou (Round/RoundEven)": true,
+      "clamp aumentou (FClamp/NClamp ou par min/max)": true,
+      "OpConvertFToS aumentou": true
+    },
+    "deltas": {
+      "round": 9,
+      "clamp": 9,
+      "minmax": 0,
+      "OpConvertFToS": 9
+    }
+  },
+  "V4": {
+    "ok": true,
+    "itens": {
+      "fused_projection_backward_optimizer: atomicos inalterados": true,
+      "fused_projection_backward_optimizer: OpConvertSToF aumentou": true,
+      "default_update_state: atomicos inalterados": true,
+      "default_update_state: OpConvertSToF aumentou": true
+    }
+  },
+  "perfis": {
+    "vksplat/shader/generated/default_update_state.spv": {
+      "D3": {
+        "atomicos": {},
+        "glsl": {
+          "FMax": 2
+        },
+        "OpConvertFToS": 0,
+        "OpConvertSToF": 1,
+        "extensions": [
+          "SPV_KHR_storage_buffer_storage_class"
+        ]
+      },
+      "D4": {
+        "atomicos": {},
+        "glsl": {
+          "FMax": 2
+        },
+        "OpConvertFToS": 0,
+        "OpConvertSToF": 3,
+        "extensions": [
+          "SPV_KHR_storage_buffer_storage_class"
+        ]
+      },
+      "sha256_D4": "0f04a914d6ed3537a3054d1b078eaa9a2ff4b73e9b6c3f061c6faa2b1142f3e1"
+    },
+    "vksplat/shader/generated/fused_projection_backward_optimizer.spv": {
+      "D3": {
+        "atomicos": {},
+        "glsl": {
+          "FMin": 17,
+          "FMax": 31
+        },
+        "OpConvertFToS": 0,
+        "OpConvertSToF": 8,
+        "extensions": [
+          "SPV_KHR_storage_buffer_storage_class"
+        ]
+      },
+      "D4": {
+        "atomicos": {},
+        "glsl": {
+          "FMin": 17,
+          "FMax": 31
+        },
+        "OpConvertFToS": 0,
+        "OpConvertSToF": 17,
+        "extensions": [
+          "SPV_KHR_storage_buffer_storage_class"
+        ]
+      },
+      "sha256_D4": "c76a1ddcc9e2606905487264f8cbb62f74ba1b64f7e52b663d8e2d6d46062cff"
+    },
+    "vksplat/shader/generated/rasterize_backward_1.spv": {
+      "D3": {
+        "atomicos": {
+          "OpAtomicFAddEXT": 9
+        },
+        "glsl": {
+          "FMin": 2
+        },
+        "OpConvertFToS": 1,
+        "OpConvertSToF": 0,
+        "extensions": [
+          "SPV_KHR_storage_buffer_storage_class",
+          "SPV_EXT_shader_atomic_float_add"
+        ]
+      },
+      "D4": {
+        "atomicos": {
+          "OpAtomicIAdd": 9
+        },
+        "glsl": {
+          "FMin": 2,
+          "FClamp": 9,
+          "Round": 9
+        },
+        "OpConvertFToS": 10,
+        "OpConvertSToF": 0,
+        "extensions": [
+          "SPV_KHR_storage_buffer_storage_class"
+        ]
+      },
+      "sha256_D4": "36e2b93bf63c43e88a1442ac37965149a084e946142596f6807c29c0d1aa53d2"
+    }
+  }
+}
