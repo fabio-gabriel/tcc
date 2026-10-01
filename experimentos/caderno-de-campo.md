@@ -1408,6 +1408,47 @@ Sobre `Round`, literal: *"The fraction 0.5 rounds in a direction chosen by the i
 - **Pré-condição.** Um arquivo intruso na árvore faz o script abortar antes de compilar.
 - **Não testado:** o caminho positivo e a própria compilação. Exigem o `slangc` real, que só existe na Ubuntu. É o primeiro ponto em que o patch pode falhar, e erro de compilação é resultado barato.
 
+## 2026-09-30 — D4 compila na primeira tentativa e **passa V2, V3 e V4**
+
+Patch aplicado na Ubuntu sobre `tcc-base` = D3, e `compilar_d4.py` executado. Saída literal, resumida:
+
+```
+compilados: 16 jobs, 0 falhas, 0 com saida (avisos)
+V2 OK   conjunto alterado vs D3
+V3 OK   rasterize_backward_1.spv   (OpAtomicIAdd == 9, OpAtomicFAddEXT == 0, sem SPV_EXT_shader_atomic_float_add)
+     deltas vs D3: round=9 clamp=9 minmax=0 ConvertFToS=9
+V4 OK   consumidores (atomicos inalterados; OpConvertSToF aumentou nos dois)
+VEREDITO: PRONTO PARA COMMIT DE D4
+```
+
+**Leitura.** O critério de V3 exigia aumentos de pelo menos 1. Os deltas saíram **exatamente 9 em cada**: um arredondamento, um `clamp` (como `FClamp`/`NClamp`, e não como par min/max) e uma conversão por sítio. É evidência mais forte que o critério pedia de que o binário corresponde ao código.
+
+**V2 é também uma segunda reprodução do T0.** Dos 16 `.spv` recompilados, 13 saíram bit-idênticos a D3. Isso confirma, no binário, que o `#include` do `per_splat` só alcança `BACKWARD_MODE == PER_SPLAT` e que as outras 8 fases de `default.slang` não foram afetadas.
+
+**Não estabelecido:** que D4 executa corretamente no RADV. Compilar e emitir as instruções certas não é executar, e isso só a série responde (§11.9, item 1).
+
+**Pendente antes da série:**
+1. commit e tag `D4` no fork (V1);
+2. cópia de `verificacao_d4.json` para `dados/toolchain/`;
+3. conferência independente, a partir do Mac, do commit empurrado;
+4. entrada datada §11.11 com o SHA de D4, commitada no TCC.
+
+O §11.10 já está no remoto (`6bc589d`), e o adendo está vinculante.
+
+## 2026-09-30 — D4 commitado e conferido de forma independente
+
+### Commit e conferência independente
+
+**D4 = `22560858b0f23586176ea3bf03907c607d8c944f`**, 2026-09-30 19:09:08 −03, `tcc-base`, tag leve `D4`, com D3 como pai. Relatório `verificacao_d4.json` em `ce1d913` (gerado 19:05:38 −03, antes do commit).
+
+Conferido a partir do Mac, sobre o que foi empurrado:
+- `git diff --name-status D3 D4` dá exatamente os 7 arquivos;
+- as 4 fontes são bit-idênticas ao rascunho de que saiu o patch;
+- os 3 `.spv` têm o mesmo `sha256` que o verificador aprovou;
+- o perfil foi reproduzido: `rasterize_backward_1` tem `OpAtomicIAdd` ×9, `FClamp` ×9 e **`Round`** ×9 (não `RoundEven`, caso previsto no §11.2), e `OpConvertFToS` passa de 1 para 10.
+
+Nos consumidores, `OpConvertSToF` passou de 8 para 17 no otimizador e de 1 para 3 em `UpdateState`: exatamente o número de componentes desquantizados em cada um. Registrado no `pre-registro.md` §11.11, acrescentado ao fim.
+
 ## Estado em 2026-09-25 — ponto de entrada para sessão nova
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
@@ -1457,8 +1498,8 @@ Estado de `pre-registro.md` §10.7:
 | 1. medir gradientes e K | **feito** 2026-09-23 |
 | 2. verificar SPIR-V de `InterlockedAdd` inteiro | **feito** 2026-09-24 |
 | 3. fixar escalas e **commitar o adendo do estágio 2** | **feito.** §11.1–§11.9 em `02722af` (2026-09-25); T0 com 41/41 idênticos, caminho A, JSON em `2f2ad65`; §11.10, com o resultado e a vinculação, redigido em 2026-09-30 **e ainda não commitado** |
-| 4. implementar (4 arquivos Slang, zero C++), commitar como D4, registrar SHA | **patch escrito em 2026-09-30** (`experimentos/d4/d4.patch`) e verificador pronto (`experimentos/compilar_d4.py`). Falta: aplicar e compilar na Ubuntu, passar V2/V3/V4, commitar e criar a tag `D4` |
-| 5. rodar a série, verificar bit-identidade por hash | pendente |
+| 4. implementar (4 arquivos Slang, zero C++), commitar como D4, registrar SHA | **feito.** D4 = `22560858b0f2…`, V1–V4 passados, conferido de forma independente; SHA no §11.11, que precisa estar **commitado** antes da série |
+| 5. rodar a série, verificar bit-identidade por hash | **em execução** desde 2026-09-30 |
 
 **O adendo (§11) contém, e dois itens mudaram em relação ao plano anterior:**
 

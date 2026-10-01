@@ -541,3 +541,29 @@ Não se afirma que o upstream usou a mesma versão do `slangc`. Afirma-se que el
 **Vinculação.** Com esta entrada, §11 passa a ser **vinculante para D4**. O estado "RASCUNHO" no cabeçalho de §11 refere-se ao momento de `02722af` e não é editado.
 
 **Pendente, em entrada datada posterior:** o SHA do commit de D4 no fork, e o resultado de V1–V4 (§11.6), antes da primeira execução medida.
+
+### 11.11 Registro datado — 2026-09-30: SHA de D4 e verificações V1–V4
+
+> Entrada **acrescentada**. Não edita §3.1 nem §11.1–§11.10.
+
+**SHA de D4: `22560858b0f23586176ea3bf03907c607d8c944f`**, commit de 2026-09-30T19:09:08−03:00 na branch `tcc-base` do fork, com a tag leve `D4`. Seu pai é `d222c47182f5917be0cc209f19d3257e1ebad17e` (D3), portanto em cadeia linear. Complementa a linha "D4" da tabela de §3.1, que não é editada.
+
+**Verificações, relatório em `dados/toolchain/verificacao_d4.json`** (gerado em 2026-09-30T22:05:38Z, antes do commit de D4):
+
+| | resultado |
+|---|---|
+| V1 | árvore do fork limpa (checada pelo `run_degree.sh` antes do checkout); commit e tag no remoto |
+| V2 | `git diff --name-status D3 D4`: exatamente 3 `.slang` modificados, 1 novo (`d4_fixed_point.slang`) e 3 `.spv` (`rasterize_backward_1`, `fused_projection_backward_optimizer`, `default_update_state`). Os outros 13 `.spv` recompilados saíram bit-idênticos a D3 |
+| V3 | `rasterize_backward_1.spv`: `OpAtomicIAdd` ×9, `OpAtomicFAddEXT` ×0, sem `SPV_EXT_shader_atomic_float_add`. Contra D3: +9 `Round`, +9 `FClamp`, +9 `OpConvertFToS`, isto é, um por sítio |
+| V4 | consumidores sem atômico novo. `OpConvertSToF`: otimizador 8 → 17 (+9, um por componente); `UpdateState` 1 → 3 (+2, os dois de `xy`) |
+
+Compilação: 16 jobs, zero falhas e zero avisos, com `slangc 2026.2.1` e as opções do upstream (§11.6).
+
+**Conferência independente**, a partir de outra máquina e do commit empurrado:
+- as 4 fontes em `D4` são bit-idênticas às do rascunho de que o patch foi gerado;
+- os 3 `.spv` em `D4` têm o mesmo `sha256` que o verificador aprovou;
+- o perfil de instruções de cada um foi reproduzido.
+
+O compilador emitiu `Round` (GLSL.std.450 nº 1), e não `RoundEven`. A regra de desempate de `Round` é *"chosen by the implementation"*, o que é irrelevante para H3.4, como previsto em §11.2.
+
+**Com esta entrada commitada, D4 pode ser executado.**
