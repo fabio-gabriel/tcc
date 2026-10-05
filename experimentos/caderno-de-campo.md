@@ -1449,6 +1449,111 @@ Conferido a partir do Mac, sobre o que foi empurrado:
 
 Nos consumidores, `OpConvertSToF` passou de 8 para 17 no otimizador e de 1 para 3 em `UpdateState`: exatamente o número de componentes desquantizados em cada um. Registrado no `pre-registro.md` §11.11, acrescentado ao fim.
 
+## 2026-10-01 — Série D4, N=10: **H3.4 refutada**, mas a dispersão colapsa e a divergência é empurrada para o fim do treino
+
+Série executada em 2026-09-30, coletada em `de8693f`. O §11.11, com o SHA de D4, foi commitado em `b8b766d`. Isso aconteceu **depois** de a série rodar. Os parâmetros (§11.1–§11.10) e o commit e a tag de D4 já estavam no remoto antes da primeira execução.
+
+### Integridade, conferida antes de ler qualquer resultado
+
+As 10 execuções:
+- todas com `vksplat_commit` = `22560858b0f2…`, árvore limpa e `train_device 0`;
+- todas no mesmo boot (`8d0e782c`), com kernel `-31`, Mesa `25.2.8-0ubuntu0.24.04.2`, `libc6 8.9` e `python 0.17`, o mesmo estrato do bloco `run020`–`run029`;
+- dispositivo `AMD Radeon RX 9070 XT (RADV GFX1201)`, com o `llvmpipe` marcado `NOT VIABLE`, sem `USE_EMULATED`;
+- contagens do escalonador `PerSplat`/`Tensor` em **0/0**: o escalonamento está desligado, como em D2 e D3.
+
+O resultado desfavorável recebeu a mesma conferência de harness que um favorável receberia.
+
+### H3.4 — refutada pelo critério do §6
+
+**10 execuções, 10 hashes de `splat.ply` distintos.** O critério é a identidade de hash, e ela falhou. Conforme o §11.8, a fonte residual não identificada passa a ser o achado.
+
+### Mas a magnitude da dispersão desabou
+
+| | D3, `run020`–`run029` | D4 | razão |
+|---|---|---|---|
+| IQR de PSNR | 0,0477 dB | **0,0038 dB** | ~12× |
+| amplitude de PSNR | 0,0746 dB | 0,0243 dB | ~3× |
+| IQR de nº de gaussianas | 10.202 | **18** | ~570× |
+| amplitude de nº de gaussianas | 29.903 | **104** | ~290× |
+| valores distintos de nº de gaussianas | 10/10 | **6/10** | — |
+
+Cinco das dez execuções terminam com exatamente 5.940.143 gaussianas, e `splat.ply` de tamanho idêntico, mas com hashes diferentes.
+
+A amplitude de PSNR é puxada por uma única execução, `run001` (27,0165 contra 26,992–27,000 das outras nove). Com N=10, isso é descrição e não teste. Comparação formal com D3 pelo §5.2 ainda não foi feita.
+
+### O achado mais forte: onde as trajetórias divergem
+
+Pelas 144 linhas de densificação de cada log (`N dupli, N split, N prune -> N splats`), grandeza secundária pré-registrada no §4:
+
+| | primeiro evento de densificação em que as execuções divergem | sequências completas distintas |
+|---|---|---|
+| D3, `run020`–`run029` | **evento 0** de 144 | 10 de 10 |
+| D4 | **evento 129** de 144 | **6 de 10**; um grupo de **5 execuções idênticas nos 144 eventos** |
+
+Em D3, as execuções já diferem na primeira densificação. Em D4, as dez são idênticas em 129 das 144, e no evento 129 diferem por 1 a 4 gaussianas em 5,7 milhões. **D4 transformou um não-determinismo que se manifesta de imediato num evento raro e tardio.**
+
+Isso é compatível com a eliminação da fonte dominante e com a persistência de uma fonte residual rara. **Não identifica a fonte residual.** As cinco execuções com densificação idêntica também têm hashes diferentes, então a divergência pode estar também nos valores dos parâmetros, sem cruzar nenhum limiar de densificação.
+
+### Custo em qualidade: alto, e provavelmente não é o custo do determinismo
+
+| | D3, `run020`–`run029` | D4 |
+|---|---|---|
+| PSNR mediana | 27,383 dB | **26,998 dB** (−0,39) |
+| SSIM | 0,8638 | 0,8471 |
+| LPIPS-Alex | 0,0760 | 0,0998 |
+| nº de gaussianas | 5,81 M | 5,94 M (+2,3%) |
+
+−0,39 dB é quase quatro vezes o limiar de relevância de H2.
+
+**Hipótese, com base quantitativa, ainda não testada:** a quantização zera praticamente todo o gradiente de **cônica**. Nos dados de `dados/gradientes/` (passos ≥ 1000), o percentil 99 do gradiente **já acumulado** de `conic_0`, `conic_1` e `conic_2` vale **0,3, 0,3 e 0,7 quantum**. Cada termo individual, antes de somar os K tiles, é menor ainda, e abaixo de ½ quantum vira zero. Nos demais componentes a resolução é ampla: o p90 fica em 2.000 a 260.000 quanta. Se a hipótese se confirmar, D4 tem efetivamente **duas** alterações em relação a D3: a acumulação inteira e a supressão do gradiente de covariância. Nesse caso, a perda de qualidade não pode ser atribuída ao determinismo.
+
+### Erro meu, na origem da hipótese
+
+O §11.2 fixa `s = floor(log2(2^30 / máximo))`. Na cônica, o máximo é o transiente do passo 0 (3,7e+03), cinco ordens acima do regime. Ao redigir o adendo, julguei aceitáveis os "2.001 níveis no p99,9" de `conic_1`. **Aquele p99,9 era o máximo entre todos os passos, dominado pelo início do treino. Não olhei o regime.** O dado para ver isso estava no JSON desde 2026-09-23. É o mesmo padrão do erro de dupla contagem daquela data: uma estatística agregada sem olhar a estrutura temporal. A regra estava pré-registrada e foi seguida; o erro é de desenho, não de execução, e entra como limitação de D4.
+
+### Tempo
+
+D4 tem mediana de **870,5 s**, contra 945,6 s de D3, ou seja **8% mais rápido**. Pelo T0 (caminho A), o compilador não é fator de confusão. Mas, se a hipótese da cônica valer, parte do trabalho do backward pode estar sendo descartada. Fica registrado como observação, sem interpretação.
+
+### Próximos passos possíveis, a decidir com o aluno
+
+1. **Diagnóstico sem execução nova:** comparar os `splat.ply` de D4 na Ubuntu, sobretudo dentro do grupo de 5 trajetórias idênticas. Ver quantas gaussianas diferem, em quais parâmetros, com que magnitude, e se a diferença é só de ordem dos registros. É a grandeza secundária "diferenças por parâmetro" do §4, já pré-registrada.
+2. **Variante com escala de cônica dimensionada para o regime:** separaria o artefato de quantização do custo do determinismo. Exige adendo novo, datado, **antes** de rodar, e declarado como posterior à observação de D4. São ~2,5 h de máquina.
+3. **Caçar a fonte residual:** é aberto, e com risco de prazo. O resultado atual já sustenta a afirmação "a fonte dominante é a acumulação em float; resta uma fonte rara e tardia".
+
+## 2026-10-02 — Diagnóstico dos `.ply` de D4 preparado
+
+Decisão do aluno: seguir com o passo 1 acima, sem sacrificar qualidade por prazo.
+
+**Formato lido no código**, em `VulkanGSTrainer::writePLY`, `vksplat/src/gs_trainer.cpp:1398` em D4:
+- cabeçalho ASCII, `binary_little_endian 1.0`;
+- 59 `float` por gaussiana (posição, 48 SH, opacidade, 3 escalas, 4 de rotação), 236 bytes por registro;
+- registros gravados **na ordem do buffer da GPU**;
+- a conversão de escala e opacidade para log/logit é feita na CPU, antes de gravar.
+
+Conferido: 5.940.143 × 236 + cabeçalho = 1.401.875.226 bytes, o tamanho exato das 5 execuções de mesmo `num_splats`.
+
+**Consequência de método:** como a ordem dos registros entra no hash, hashes distintos **não implicam modelos distintos**. O diagnóstico tem de separar dois casos:
+- **(a) permutação:** mesmo multiconjunto de gaussianas, gravado em outra ordem;
+- **(b) diferença de valor.**
+
+**Script:** `experimentos/diagnosticar_ply_d4.py`. Compara `run000` contra as outras nove execuções e reporta:
+- identidade byte a byte;
+- teste de permutação, por hash de 64 bits por registro e comparação dos multiconjuntos;
+- quando N é igual: quantas gaussianas diferem, em que índices, quais propriedades, e o máximo e o histograma da diferença **em ULP de `float32`**.
+
+Lê por `memmap`, não altera nada e grava um JSON pequeno. É a grandeza secundária "diferenças por parâmetro" do §4, já pré-registrada.
+
+**Testes no Mac,** com `.ply` sintéticos no formato exato do `writePLY`:
+- cópia idêntica → identificada como idêntica;
+- só a ordem trocada → mesmo multiconjunto;
+- 3 gaussianas perturbadas em 1 e 5 ULP → 3 gaussianas, propriedades, índices e ULP corretos;
+- registro a mais → N diferente e 1 registro exclusivo.
+
+**Erro meu, encontrado no teste antes de rodar:** a conversão de `float32` para inteiro ordenável tratava errado os negativos. `−0,0` e `+0,0` ficariam a 2³¹ ULP de distância, e o certo é 1. Corrigido para o mapeamento padrão (`~u` nos negativos, `u ^ 0x80000000` nos positivos) e conferido nos casos de borda: zero com sinal, denormais e monotonicidade.
+
+**Não executado ainda.** Os `.ply` de D4 estão só na Ubuntu.
+
 ## Estado em 2026-09-25 — ponto de entrada para sessão nova
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
@@ -1499,7 +1604,7 @@ Estado de `pre-registro.md` §10.7:
 | 2. verificar SPIR-V de `InterlockedAdd` inteiro | **feito** 2026-09-24 |
 | 3. fixar escalas e **commitar o adendo do estágio 2** | **feito.** §11.1–§11.9 em `02722af` (2026-09-25); T0 com 41/41 idênticos, caminho A, JSON em `2f2ad65`; §11.10, com o resultado e a vinculação, redigido em 2026-09-30 **e ainda não commitado** |
 | 4. implementar (4 arquivos Slang, zero C++), commitar como D4, registrar SHA | **feito.** D4 = `22560858b0f2…`, V1–V4 passados, conferido de forma independente; SHA no §11.11, que precisa estar **commitado** antes da série |
-| 5. rodar a série, verificar bit-identidade por hash | **em execução** desde 2026-09-30 |
+| 5. rodar a série, verificar bit-identidade por hash | **feito** 2026-09-30, `de8693f`. **H3.4 refutada**: 10/10 hashes distintos. Dispersão muito reduzida, divergência só a partir do evento de densificação 129/144, e qualidade −0,39 dB. Ver a entrada de 2026-10-01 |
 
 **O adendo (§11) contém, e dois itens mudaram em relação ao plano anterior:**
 
@@ -1591,3 +1696,7 @@ Não corrigidos na sessão paralela, para não editar fonte de verdade sem o alu
 - Que **D0–D3 e D4 foram compilados pelo mesmo compilador**. D0–D3 executaram os `.spv` do upstream, de versão de Slang desconhecida (`generator` versão 0). D4 será compilado pelo nosso `slangc 2026.2.1`. Só T0 diz se os bytes coincidem.
 - Que **`clamp` antes do atômico quebra a associatividade**. `clamp` **por termo** não quebra, e é exigido para evitar o comportamento indefinido de `OpConvertFToS`. O que quebra é saturar o **acumulador**.
 - Que **o modo de denormais foi controlado** em algum degrau. Não foi: é *"implementation defined"* nos cinco, por decisão de não alterar as opções do upstream.
+- Que **D4 produz execuções bit-idênticas**, ou que é "quase determinístico" num sentido formal. São 10 hashes distintos em 10, e H3.4 está refutada pelo critério pré-registrado.
+- Que **a perda de 0,39 dB de D4 é o custo do determinismo**. A hipótese mais provável, ainda não testada, é que a escala da cônica zera quase todo o gradiente de covariância.
+- Que **a fonte residual de não-determinismo é X**. Não foi identificada. Sabe-se só que é rara e tardia: as 10 execuções coincidem em 129 dos 144 eventos de densificação.
+- Que **D4 reduz a dispersão de forma estabelecida estatisticamente**. A redução observada é grande (IQR de PSNR ~12×, de gaussianas ~570×), mas o teste do §5.2 ainda não foi aplicado.
