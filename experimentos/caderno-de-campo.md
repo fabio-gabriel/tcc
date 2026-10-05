@@ -1644,7 +1644,11 @@ Um erro apareceu no teste e era **do stand-in**, não do script: atribuição a 
 - ler um buffer sincroniza a GPU. Não muda a aritmética, mas estas são execuções instrumentadas, **não fazem parte da série medida de D4** e não entram em H3.4;
 - a amostragem localiza a divergência num intervalo, e pode ser preciso uma segunda rodada para refinar.
 
-**Não executado ainda.** Exige 2 execuções na Ubuntu, de cerca de 35 min cada.
+**Primeira tentativa, 2026-10-05: falhou no passo 0, por erro meu.** Saída literal: `TypeError: memoryview: cannot cast view with zeros in shape or strides`, em `hash_buffer`. Algum buffer veio vazio, com uma dimensão zero, no passo 0, e `memoryview(a).cast("B")` não aceita isso. **O stand-in do meu teste nunca teve buffer vazio.** As duas execuções do laço falharam do mesmo modo, segundos depois de começar, e o `--comparar` falhou em seguida por falta do JSON. Nenhum dado foi perdido.
+
+Corrigido: o hash agora é da vista 1-D em `uint8`, que aceita tamanho zero. O `shape` segue registrado, de modo que um buffer vazio numa execução e cheio na outra continua aparecendo como diferença. Testado contra o hash de `tobytes()` com buffers vazios em três formatos, array não contíguo, `int32`, `int64` e `float32`. **Lição: um teste com stand-in precisa incluir os casos degenerados (vazio, não contíguo), não só o caso típico.**
+
+Fato útil revelado pela tentativa: `instrumentacao ativa via: patch de metodo em VkSplat.train_step`. A estratégia (a) funciona no binding pybind11 real. É provável que tenha sido ela também na medição de gradientes de 2026-09-23, **mas aquela execução não a registrou, e isso continua não estabelecido.**
 
 ## Estado em 2026-09-25 — ponto de entrada para sessão nova
 

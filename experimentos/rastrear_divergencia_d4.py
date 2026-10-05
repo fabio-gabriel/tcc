@@ -97,12 +97,16 @@ def hash_buffer(module, nome):
         a = np.ascontiguousarray(getattr(module, nome))
     except Exception as e:  # buffer nao alocado ainda, ou acessor recusou
         return {"erro": f"{type(e).__name__}: {e}"[:200]}
-    h = hashlib.blake2b(memoryview(a).cast("B"), digest_size=16).hexdigest()
+    # Vista 1-D em bytes. Nao usar memoryview(a).cast("B"): falha com
+    # "cannot cast view with zeros in shape" quando o buffer esta vazio, o que
+    # aconteceu no passo 0 da primeira execucao real (2026-10-05). O shape vai
+    # junto no registro, entao vazio x cheio continua aparecendo como diferenca.
+    h = hashlib.blake2b(memoryview(a.reshape(-1).view(np.uint8)), digest_size=16).hexdigest()
     return {"h": h, "shape": list(a.shape), "dtype": str(a.dtype)}
 
 
 def medir(module, step):
-    reg = {"step": int(step)}
+    reg: dict = {"step": int(step)}
     for estagio, nomes in ESTAGIOS:
         reg[estagio] = {n: hash_buffer(module, n) for n in nomes}
     return reg
