@@ -1552,7 +1552,99 @@ Lê por `memmap`, não altera nada e grava um JSON pequeno. É a grandeza secund
 
 **Erro meu, encontrado no teste antes de rodar:** a conversão de `float32` para inteiro ordenável tratava errado os negativos. `−0,0` e `+0,0` ficariam a 2³¹ ULP de distância, e o certo é 1. Corrigido para o mapeamento padrão (`~u` nos negativos, `u ^ 0x80000000` nos positivos) e conferido nos casos de borda: zero com sinal, denormais e monotonicidade.
 
-**Não executado ainda.** Os `.ply` de D4 estão só na Ubuntu.
+**Executado na Ubuntu em 2026-10-05.** Resultado na entrada seguinte.
+
+## 2026-10-05 — Diagnóstico dos `.ply`: **não é permutação, é deriva de valor em ~99% das gaussianas**; e D3→D4 passa no §5.2
+
+JSON em `dados/D4/diagnostico_ply.json`, commit `1c97ecf`.
+
+### Os modelos diferem de verdade, e as gaussianas estão alinhadas
+
+Referência `run000` contra as outras nove:
+- **nenhum par é idêntico, e nenhum par tem o mesmo multiconjunto de registros.** A hipótese de permutação, o caso (a), está descartada;
+- nos 4 pares com o mesmo N (`run002`, `005`, `008` e `009`), **de 99,0% a 99,85% das gaussianas diferem** em pelo menos uma propriedade;
+- **as gaussianas estão alinhadas por índice**: em `run008`, a maior diferença de posição é de 1,28, 1,33 e 1,30 cm em `x`, `y` e `z`. Desalinhamento daria diferenças na escala da cena. O índice `i` é a mesma gaussiana nas duas execuções, com valores derivados.
+
+### Magnitude da deriva
+
+O histograma de ULP é praticamente idêntico nos 4 pares. Cerca de 0,03% dos valores diferentes ficam em 1 ULP, a mediana em torno de **2²⁰ ULP**, e ~95% abaixo de 2²⁶. Há um pico separado em 2³⁰–2³¹ ULP, com ~5% dos valores. É compatível com valores perto de zero de sinal oposto, já que a distância em ULP explode ao atravessar o zero. **A leitura do pico é inferência**, não verificada valor a valor.
+
+A deriva atinge todos os tipos de parâmetro:
+- posição: 5,92 M de valores diferentes;
+- SH: 5,8 M;
+- opacidade: 5,93 M;
+- escala e rotação: apenas **1,40 M e 1,45 M**, cerca de 24%.
+
+A menor fração em escala e rotação é compatível com a hipótese de 2026-10-01, de que o gradiente de cônica é quase todo zerado em D4. Escala e rotação recebem gradiente essencialmente pela covariância. É **compatível**, e não demonstrado.
+
+### Leitura, com a força declarada
+
+Hipótese consistente com os dados: uma perturbação mínima, em algum passo, amplificada pela otimização até alcançar o modelo inteiro. As densificações idênticas até o evento 129, e nos 144 eventos para 5 execuções, só mostram que nenhuma **decisão de limiar** mudou. **Não** mostram bit-identidade dos parâmetros até ali. **O passo em que a divergência começa é desconhecido.** É o fenômeno da H3b ("repetibilidade não implica estabilidade") observado diretamente.
+
+### §5.2 aplicado a D3 → D4
+
+Seed `20260909`, 10.000 reamostragens, critério conjuntivo, exatamente como fixado:
+
+| comparação | Fligner | razão de IQR | IC 95% | critério do §5.2 |
+|---|---|---|---|---|
+| D3 (N=30) × D4, PSNR, **a pré-registrada** | p = 2,2e−3 | 0,115 | [0,028 – 0,606] | **sustentada** |
+| D3 `run020`–`029` (mesmo estrato) × D4, PSNR | p = 1,5e−3 | 0,080 | [0,021 – 0,481] | sustentada |
+| D3 × D4, `num_splats` (§4) | p = 7,2e−5 | 0,0012 | [0,000 – 0,006] | sustentada |
+
+**É a primeira transição da escada que passa no critério do §5.2.** Os critérios não se confundem: **H3.4, pela identidade de hash, segue refutada**, e a redução de dispersão, pelo §5.2, é sustentada. O texto reporta os dois, separados.
+
+### Confundidor, registrado porque o resultado é favorável
+
+Em D4, a escala da cônica zera quase todo o gradiente de covariância (entrada de 2026-10-01). Otimizar menos graus de liberdade pode, por si só, deixar a trajetória menos sensível e reduzir a dispersão. **A redução D3→D4 não pode ser atribuída apenas à acumulação inteira enquanto esse confundidor estiver aberto.** O D4b, com a escala da cônica dimensionada pelo regime, deixa de ser opcional.
+
+### Plano de iterações restantes, proposto ao aluno
+
+Decisão do aluno: concluir as iterações antes de escrever. Proposta de data-limite para congelar os dados: **16/out**, a decidir.
+1. §5.2 com D4: **feito**, acima.
+2. Localizar o início da divergência em D4: hash de parâmetros **e de gradientes inteiros** em passos amostrados, em 2 execuções.
+3. Diagnóstico de `.ply` em D3, para comparar a deriva.
+4. **D4b**, que exige adendo §11.12 antes de rodar.
+5. H4, a comparação com os valores publicados.
+6. H3b: executar, ou declarar não executada.
+7. Cópia em nuvem dos `.ply`.
+
+### Correspondência entre evento de densificação e passo
+
+Lida no código, `simple_trainer.py:42-44` e `gs_trainer.cpp:829-830` em D4. A densificação ocorre quando `step > refine_start_iter` (500), `step % refine_every == 0` (100) e `step < refine_stop_iter` (15.000). Os 144 eventos são os passos 600, 700, …, 14.900. **O evento 129, em que as densificações de D4 começam a divergir, é o passo 13.500.**
+
+## 2026-10-05 — Rastreador da divergência de D4 preparado (item 2)
+
+`experimentos/rastrear_divergencia_d4.py`. Treina D4 uma vez, com a configuração do `tcc_runner.py`, e depois de cada `train_step` amostrado grava o hash BLAKE2b dos bytes de 21 buffers, agrupados pelo estágio que os escreve. A ordem do pipeline foi lida em `python_bindings.cpp:532-546`: `forward` → gradiente da perda → `backward_optimize` → `post_backward_step`. Os estágios:
+- projeção;
+- binning;
+- forward (a imagem renderizada);
+- perda;
+- backward (os gradientes inteiros);
+- parâmetros, depois do otimizador e da densificação.
+
+O modo `--comparar` dá o primeiro passo amostrado que difere e, nele, o primeiro estágio que difere. **Se a perda coincidir e o backward não, a fonte residual está no backward**, e assim para os outros estágios.
+
+**Amostragem:** passos 0–99; 105–995 de 10 em 10; 1.050–29.950 de 100 em 100; e o 29.999. São 481 amostras, **nenhuma múltipla de 100** fora do 0. Nos passos de densificação e de reset de opacidade os buffers mudam de tamanho, e ler a região nova pode pegar memória não inicializada, que diferiria entre execuções sem significado.
+
+**Verificado antes de escrever:**
+- os 21 nomes existem no binding de D4;
+- `python_bindings.cpp` é idêntico entre D3 e D4;
+- a instrumentação reaproveita a que funcionou em `medir_gradientes_d4.py`, sem tocar no fork, e agora grava no JSON a estratégia usada.
+
+**Testado no Mac, com stand-in e trajetórias sintéticas:**
+- o hash é determinístico;
+- um erro de acesso a buffer é capturado, e não derruba a execução;
+- trajetórias idênticas não mostram diferença;
+- divergência que nasce no backward no passo 37 é localizada no passo 37, com os estágios anteriores identificados como idênticos;
+- diferença de tamanho no forward é identificada no primeiro passo amostrado depois dela.
+
+Um erro apareceu no teste e era **do stand-in**, não do script: atribuição a uma propriedade só de leitura.
+
+**Limitações:**
+- ler um buffer sincroniza a GPU. Não muda a aritmética, mas estas são execuções instrumentadas, **não fazem parte da série medida de D4** e não entram em H3.4;
+- a amostragem localiza a divergência num intervalo, e pode ser preciso uma segunda rodada para refinar.
+
+**Não executado ainda.** Exige 2 execuções na Ubuntu, de cerca de 35 min cada.
 
 ## Estado em 2026-09-25 — ponto de entrada para sessão nova
 
@@ -1699,4 +1791,6 @@ Não corrigidos na sessão paralela, para não editar fonte de verdade sem o alu
 - Que **D4 produz execuções bit-idênticas**, ou que é "quase determinístico" num sentido formal. São 10 hashes distintos em 10, e H3.4 está refutada pelo critério pré-registrado.
 - Que **a perda de 0,39 dB de D4 é o custo do determinismo**. A hipótese mais provável, ainda não testada, é que a escala da cônica zera quase todo o gradiente de covariância.
 - Que **a fonte residual de não-determinismo é X**. Não foi identificada. Sabe-se só que é rara e tardia: as 10 execuções coincidem em 129 dos 144 eventos de densificação.
-- Que **D4 reduz a dispersão de forma estabelecida estatisticamente**. A redução observada é grande (IQR de PSNR ~12×, de gaussianas ~570×), mas o teste do §5.2 ainda não foi aplicado.
+- Que **a redução de dispersão D3→D4 se deve só à acumulação inteira**. Passa no §5.2, mas há confundidor aberto: em D4 o gradiente de cônica é quase todo zerado. Só o D4b separa os dois efeitos.
+- Que **as execuções de D4 diferem só na ordem das gaussianas**. Não é permutação: ~99% das gaussianas diferem em valor, alinhadas por índice.
+- Que **se sabe quando a divergência de D4 começa**. Densificação idêntica até o evento 129 não implica parâmetros bit-idênticos até lá.
