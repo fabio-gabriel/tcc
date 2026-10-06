@@ -290,6 +290,17 @@ def comparar(a_path, b_path) -> int:
             if len(janela) == 1:
                 print(f"  -> janela de 1 passo: o passo {p} e o de origem; "
                       f"densificacao nele: {'SIM' if eh_densificacao(p) else 'nao'}")
+        # Salvaguarda contra falso positivo (caderno, 2026-10-06): uma diferenca
+        # que aparece SO nos parametros so e aceita como divergencia real se a
+        # imagem renderizada tambem divergir no passo seguinte.
+        if primeiro == "parametros" and (p + 1) in ra and (p + 1) in rb \
+                and "forward" in ordem:
+            x = ra[p + 1]["forward"]["pixel_state"]
+            y = rb[p + 1]["forward"]["pixel_state"]
+            if "h" in x and "h" in y:
+                prop = x["h"] != y["h"]
+                print(f"\n  salvaguarda: pixel_state em {p + 1} "
+                      f"{'TAMBEM difere -> divergencia real' if prop else 'NAO difere -> suspeita de falso positivo; investigar antes de concluir'}")
         return 0
     print(f"\nNENHUMA diferenca em {len(passos)} passos amostrados (ultimo: {ultimo_igual}).")
     return 0

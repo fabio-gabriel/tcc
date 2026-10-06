@@ -1697,6 +1697,18 @@ Como o início varia de par para par, adensar só a janela 14.050–14.150 não 
 
 Testado com trajetórias sintéticas: origem num passo de densificação, origem fora dele, e conjuntos de buffers incompatíveis, caso em que o script aborta.
 
+**Erro meu de estimativa (2026-10-06).** Anunciei ~45 min por execução no modo denso. O aluno observou **~1 it/s**, o que dá ~8,3 h por execução e ~17 h pelo par. Estimei pelo volume de dados (~110 MB por passo a GB/s) e não medi o custo por amostra. O número observado indica **~1 s por amostra, independente do volume**. É coerente com a rodada completa: 481 amostras a ~1 s somam uns 8 minutos sobre o treino, e passaram despercebidos. Lição: medir o custo por amostra antes de anunciar prazo de execução instrumentada. Decisão a tomar: deixar o par terminar (recomendado), ou interromper e redesenhar com o modo denso restrito a uma faixa, o que exige um par novo.
+
+**Mecanismo, lido no código depois de o aluno notar a GPU ociosa.** Cada leitura de buffer é serial:
+1. `copyFromDevice` (`buffer.cpp:342-368`) grava uma cópia do buffer para a área de staging e **espera a GPU terminar** (fence no `HOST_GUARD`); depois faz `memcpy` para a RAM;
+2. `buffer_to_array` (`python_bindings.cpp:21-73`) copia para o array numpy;
+3. o meu `np.ascontiguousarray` copia de novo `opacities`, que é uma coluna de `scales_opacs`, portanto não contígua;
+4. o BLAKE2b roda numa única thread.
+
+São 5 buffers por passo. A GPU fica ociosa quase todo o tempo, esperando a CPU, o que explica as ventoinhas paradas. **A divisão do custo entre as etapas não foi medida.** É explicação por leitura de código, compatível com o ~1 s observado. Ganhos para uma rodada futura: hash em paralelo, sem a cópia de contiguidade, e com uma única leitura de `scales_opacs`. **Não aplicados**, para não mudar o instrumento no meio de um par.
+
+**Ameaça de falso positivo, verificada e afastada.** A preocupação: se o hash incluísse a folga de alocação, memória não inicializada poderia diferir entre execuções e produzir uma "divergência" falsa justo depois de uma densificação, a hipótese que o modo denso testa. O código afasta isso. `_VulkanBuffer` separa `allocSize` (alocação) de `size` (tamanho lógico, ajustado exatamente para o pedido em `buffer.cpp:193` e `:233`), e o `copyFromDevice` copia `size` (`:345`, `:358`). Na ADC o tamanho pedido para os parâmetros é o número de gaussianas ativas (`gs_trainer.cpp:726-728`). Resta a condição de que tudo dentro do tamanho lógico esteja escrito, o que vale para os parâmetros depois da densificação. **Salvaguarda adicional, a aplicar na leitura do resultado:** uma diferença nos parâmetros no passo `S` só é aceita como divergência real se a imagem renderizada (`pixel_state`) também divergir em `S+1`.
+
 ## Estado em 2026-09-25 — ponto de entrada para sessão nova
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
