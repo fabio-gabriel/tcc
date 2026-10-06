@@ -1650,6 +1650,53 @@ Corrigido: o hash agora é da vista 1-D em `uint8`, que aceita tamanho zero. O `
 
 Fato útil revelado pela tentativa: `instrumentacao ativa via: patch de metodo em VkSplat.train_step`. A estratégia (a) funciona no binding pybind11 real. É provável que tenha sido ela também na medição de gradientes de 2026-09-23, **mas aquela execução não a registrou, e isso continua não estabelecido.**
 
+## 2026-10-06 — Rastreamento de D4: **estado bit-idêntico em todos os 21 buffers até o passo 14.050**
+
+Segunda tentativa, executada na Ubuntu: 2 execuções instrumentadas de D4, 481 amostras e 30.000 chamadas cada. A rep01 terminou com PSNR 27,01, dentro da faixa da série. Saída literal do `--comparar`:
+
+```
+amostras em comum: 481  (A=481, B=481)
+ULTIMO passo amostrado com TUDO identico: 14050
+PRIMEIRO passo amostrado com diferenca : 14150
+  [os 20 buffers com conteúdo diferem, dos seis estágios]
+  primeiro estagio que difere: projecao
+```
+
+**Os JSON de trajetória ainda não estão no repositório**, em `dados/D4/`. A leitura abaixo vem da saída do terminal colada pelo aluno.
+
+### O resultado
+
+As duas execuções ficaram **bit-idênticas em todos os 21 buffers**, nos seis estágios do pipeline, **em todas as amostras do passo 0 ao 14.050**:
+- os gradientes inteiros do backward;
+- a imagem renderizada e o gradiente da perda;
+- todos os parâmetros, depois do otimizador e da densificação.
+
+Não há verificação nos passos não amostrados. Mas um estado bit-idêntico no passo 14.050, com 47% do treino percorrido, só é compatível com trajetórias idênticas até ali, salvo uma reconvergência exata, que é implausível.
+
+**Contraste com D3,** pelos dados de `dados/gradientes/` (2026-09-23): no **passo 0** de D3, apenas 71 dos 137 campos estatísticos dos gradientes coincidem entre as três repetições. **Em D3 a divergência nasce no primeiro backward. Em D4, o estado inteiro permanece idêntico por mais de 14 mil passos.** É a evidência mais direta do trabalho de que a acumulação em `float32` é a fonte imediata e dominante, e de que a acumulação inteira a elimina.
+
+### O que não se sabe
+
+No passo 14.150, **todos** os estágios diferem, a começar pela projeção. Como a projeção do passo 14.150 só lê os parâmetros deixados pelo passo 14.149, **a divergência nasceu em algum passo de 14.051 a 14.149**. Nessa amostragem, um passo basta para a diferença se espalhar por todo o pipeline, então nem o passo nem o estágio de origem são identificáveis.
+
+A janela contém **um** passo de densificação, o 14.100. É candidato natural, e nada além disso: são 99 passos, e só um deles é de densificação.
+
+### Escrutínio, porque o resultado é favorável
+
+- **Efeito da instrumentação.** Estas execuções sincronizam a GPU 481 vezes. Não muda a aritmética, mas pode mudar temporização e, se a fonte residual depender de temporização, mudar onde ela aparece. Aqui a divergência começou depois de 14.050. Na série medida, as densificações já diferiam no evento 129, o passo 13.500. É consistente com uma fonte rara de início variável, **e** é consistente com interferência da instrumentação. Não se distingue com este dado.
+- **Um único par.** É uma observação do início da divergência, não a distribuição dele.
+
+### Próximo: modo denso, para localizar o passo exato
+
+Como o início varia de par para par, adensar só a janela 14.050–14.150 não serve. Acrescentei ao rastreador o `--modo denso`: **todo passo**, com 5 buffers válidos inclusive nos passos de densificação. São `pixel_state`, `n_contributors`, `v_pixel_state`, `xyz_ws` e `opacities`, cerca de 110 MB por passo no fim do treino. O `--comparar` lê do próprio JSON a lista de estágios gravados e informa a janela de origem e se ela contém passo de densificação. O critério de densificação vem do código: `500 < passo < 15000` e `passo % 100 == 0`.
+
+**Leitura pré-definida, antes de rodar:**
+- Se o passo de origem `S` for de densificação, isso é forte evidência contra o acaso, porque só 1 em cada 100 passos é de densificação.
+- Se não for, e a imagem e a perda de `S` coincidirem enquanto os parâmetros divergem, a fonte está no backward. A inferência é por eliminação: o otimizador recebe entradas idênticas, exceto pelos gradientes, e o perfil de instruções mostrou zero atômicos no `.spv` dele.
+- **Limitação:** o modo leve não grava `v_*`, então essa última conclusão é inferência e não observação.
+
+Testado com trajetórias sintéticas: origem num passo de densificação, origem fora dele, e conjuntos de buffers incompatíveis, caso em que o script aborta.
+
 ## Estado em 2026-09-25 — ponto de entrada para sessão nova
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.

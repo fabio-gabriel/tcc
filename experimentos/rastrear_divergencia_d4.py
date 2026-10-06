@@ -84,6 +84,21 @@ ESTAGIOS = [  # ordem de execucao dentro de train_step
     ("parametros", ["xyz_ws", "sh_coeffs", "rotations", "scales", "opacities"]),
 ]
 
+# Modo denso (2026-10-06): TODO passo, conjunto leve. A rodada de 2026-10-05
+# mostrou um par bit-identico em todos os 21 buffers ate o passo 14.050 e
+# diferente em tudo no 14.150: a divergencia nasceu em algum passo de 14.051 a
+# 14.149, e em um passo ela ja se espalha pelo pipeline inteiro. Como o inicio
+# varia de par para par, adensar so aquela janela nao serve: e preciso amostrar
+# todo passo. Estes buffers sao validos tambem nos passos de densificacao:
+# pixel_state, n_contributors e v_pixel_state tem o tamanho da imagem, e
+# xyz_ws e opacities sao parametros, totalmente escritos apos a densificacao.
+# ~110 MB por passo no fim do treino.
+ESTAGIOS_LEVE = [
+    ("forward", ["pixel_state", "n_contributors"]),
+    ("perda", ["v_pixel_state"]),
+    ("parametros", ["xyz_ws", "opacities"]),
+]
+
 
 def passos_amostrados():
     s = list(range(0, 100)) + list(range(105, 1000, 10)) + list(range(1050, 30000, 100))
@@ -101,13 +116,14 @@ def hash_buffer(module, nome):
     # "cannot cast view with zeros in shape" quando o buffer esta vazio, o que
     # aconteceu no passo 0 da primeira execucao real (2026-10-05). O shape vai
     # junto no registro, entao vazio x cheio continua aparecendo como diferenca.
-    h = hashlib.blake2b(memoryview(a.reshape(-1).view(np.uint8)), digest_size=16).hexdigest()
+    h = hashlib.blake2b(memoryview(a.reshape(-1).view(np.uint8)),  # type: ignore[arg-type]
+                        digest_size=16).hexdigest()
     return {"h": h, "shape": list(a.shape), "dtype": str(a.dtype)}
 
 
-def medir(module, step):
+def medir(module, step, estagios=ESTAGIOS):
     reg: dict = {"step": int(step)}
-    for estagio, nomes in ESTAGIOS:
+    for estagio, nomes in estagios:
         reg[estagio] = {n: hash_buffer(module, n) for n in nomes}
     return reg
 
@@ -136,7 +152,10 @@ def executar(args) -> int:
     # simple_trainer importa vksplat DENTRO da funcao (linha 118): o import
     # resolve por sys.modules e recebe este mesmo objeto ja instrumentado.
 
-    alvo = set(passos_amostrados())
+    if args.modo == "denso":
+        alvo, estagios = set(range(0, 30000)), ESTAGIOS_LEVE
+    else:
+        alvo, estagios = set(passos_amostrados()), ESTAGIOS
     registros, contador = [], {"chamadas": 0}
 
     def _envolver(orig):
@@ -144,7 +163,7 @@ def executar(args) -> int:
             r = orig(self, image_idx, step)
             contador["chamadas"] += 1
             if step in alvo:
-                registros.append(medir(self, step))
+                registros.append(medir(self, step, estagios))
             return r
         return train_step
 
@@ -163,7 +182,7 @@ def executar(args) -> int:
                     r = _orig_ts(self, image_idx, step)
                     contador["chamadas"] += 1
                     if step in alvo:
-                        registros.append(medir(self, step))
+                        registros.append(medir(self, step, estagios))
                     return r
 
             vksplat.VkSplat = VkSplatInstrumentado
@@ -186,7 +205,8 @@ def executar(args) -> int:
         "vksplat_commit": sha, "train_device": st.TRAIN_DEVICE,
         "dataset_dir": cfg.dataset_dir, "image_dir": cfg.image_dir,
         "train_steps": cfg.train_steps, "estrategia_instrumentacao": estrategia,
-        "estagios": [[e, n] for e, n in ESTAGIOS],
+        "modo": args.modo,
+        "estagios": [[e, n] for e, n in estagios],
     }
     st.train_main(cfg)
 
@@ -197,12 +217,20 @@ def executar(args) -> int:
     meta["train_step_chamadas"] = contador["chamadas"]
     meta["amostras"] = len(registros)
     meta["gerado_em_fim"] = datetime.now(timezone.utc).isoformat()
-    destino = os.path.join(out, f"trajetoria_rep{args.rep:02d}.json")
+    sufixo = "_denso" if args.modo == "denso" else ""
+    destino = os.path.join(out, f"trajetoria{sufixo}_rep{args.rep:02d}.json")
     with open(destino, "w") as fp:
         json.dump({"meta": meta, "registros": registros}, fp)
     print(f"escrito: {destino}  ({len(registros)} amostras, "
           f"{contador['chamadas']} chamadas)")
     return 0
+
+
+def eh_densificacao(step):
+    """Condicao lida em gs_trainer.cpp:829-830 e simple_trainer.py:42-44 (D4):
+    step > refine_start_iter (500), step % refine_every (100) == 0,
+    step < refine_stop_iter (15000)."""
+    return 500 < step < 15000 and step % 100 == 0
 
 
 def comparar(a_path, b_path) -> int:
@@ -211,15 +239,24 @@ def comparar(a_path, b_path) -> int:
         if A["meta"][k] != B["meta"][k]:
             print(f"ABORTA: meta['{k}'] difere entre as execucoes", file=sys.stderr)
             return 1
+    # estagios vem do proprio JSON (o modo denso grava um conjunto menor)
+    est_a = [(e, list(n)) for e, n in A["meta"].get("estagios", ESTAGIOS)]
+    est_b = [(e, list(n)) for e, n in B["meta"].get("estagios", ESTAGIOS)]
+    if est_a != est_b:
+        print("ABORTA: as duas execucoes gravaram conjuntos de buffers diferentes",
+              file=sys.stderr)
+        return 1
+    estagios = est_a
     ra = {r["step"]: r for r in A["registros"]}
     rb = {r["step"]: r for r in B["registros"]}
     passos = sorted(set(ra) & set(rb))
-    print(f"amostras em comum: {len(passos)}  (A={len(ra)}, B={len(rb)})")
+    print(f"modo: {A['meta'].get('modo', 'completo')}  |  amostras em comum: "
+          f"{len(passos)}  (A={len(ra)}, B={len(rb)})")
 
     ultimo_igual = None
     for p in passos:
         dif = []
-        for estagio, nomes in ESTAGIOS:
+        for estagio, nomes in estagios:
             for n in nomes:
                 x, y = ra[p][estagio][n], rb[p][estagio][n]
                 if "erro" in x or "erro" in y:
@@ -239,9 +276,20 @@ def comparar(a_path, b_path) -> int:
             print(f"    {estagio:11s} {n:22s} {motivo}")
         primeiro = dif[0][0]
         print(f"\n  primeiro estagio que difere: {primeiro}")
-        anteriores = [e for e, _ in ESTAGIOS][:[e for e, _ in ESTAGIOS].index(primeiro)]
+        ordem = [e for e, _ in estagios]
+        anteriores = ordem[:ordem.index(primeiro)]
         if anteriores:
             print(f"  estagios anteriores, identicos nesse passo: {', '.join(anteriores)}")
+        # contexto: a divergencia nasceu em algum passo de (ultimo_igual, p]
+        if ultimo_igual is not None:
+            janela = list(range(ultimo_igual + 1, p + 1))
+            dens = [s for s in janela if eh_densificacao(s)]
+            print(f"\n  a divergencia nasceu em algum passo de {janela[0]} a {janela[-1]} "
+                  f"({len(janela)} passo(s))")
+            print(f"  passos de densificacao nessa janela: {dens if dens else 'nenhum'}")
+            if len(janela) == 1:
+                print(f"  -> janela de 1 passo: o passo {p} e o de origem; "
+                      f"densificacao nele: {'SIM' if eh_densificacao(p) else 'nao'}")
         return 0
     print(f"\nNENHUMA diferenca em {len(passos)} passos amostrados (ultimo: {ultimo_igual}).")
     return 0
@@ -256,6 +304,8 @@ def main() -> int:
     ap.add_argument("--fork")
     ap.add_argument("--out")
     ap.add_argument("--rep", type=int, default=0)
+    ap.add_argument("--modo", choices=["completo", "denso"], default="completo",
+                    help="completo: 481 passos, 21 buffers; denso: todo passo, 5 buffers")
     ap.add_argument("--dataset", default="/home/fabio/360_v2/garden")
     ap.add_argument("--image-dir", default="images_4")
     a = ap.parse_args()
