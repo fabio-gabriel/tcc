@@ -1709,7 +1709,167 @@ São 5 buffers por passo. A GPU fica ociosa quase todo o tempo, esperando a CPU,
 
 **Ameaça de falso positivo, verificada e afastada.** A preocupação: se o hash incluísse a folga de alocação, memória não inicializada poderia diferir entre execuções e produzir uma "divergência" falsa justo depois de uma densificação, a hipótese que o modo denso testa. O código afasta isso. `_VulkanBuffer` separa `allocSize` (alocação) de `size` (tamanho lógico, ajustado exatamente para o pedido em `buffer.cpp:193` e `:233`), e o `copyFromDevice` copia `size` (`:345`, `:358`). Na ADC o tamanho pedido para os parâmetros é o número de gaussianas ativas (`gs_trainer.cpp:726-728`). Resta a condição de que tudo dentro do tamanho lógico esteja escrito, o que vale para os parâmetros depois da densificação. **Salvaguarda adicional, a aplicar na leitura do resultado:** uma diferença nos parâmetros no passo `S` só é aceita como divergência real se a imagem renderizada (`pixel_state`) também divergir em `S+1`.
 
-## Estado em 2026-09-25 — ponto de entrada para sessão nova
+## 2026-10-07 — Par denso de D4: primeira diferença no **forward do passo 16.165**, fora da densificação
+
+JSONs em `dados/D4/trajetoria_denso_rep0{0,1}.json`, commit `5d4435b`. Conferido antes de comparar que são duas execuções distintas, porque os arquivos têm o mesmo tamanho (16.905.920 bytes):
+- hashes de arquivo diferentes;
+- `rep` 0 e 1;
+- rodadas em sequência, de 2026-10-06 04:40Z a 13:19Z e de 13:19Z a 21:50Z, ~8,6 h cada;
+- 30.000 amostras e 30.000 chamadas cada, commit de D4, estratégia (a).
+
+O tamanho igual é efeito do formato, de hashes de largura fixa.
+
+**Reconferência da rodada completa pelos próprios JSON** (`trajetoria_rep0{0,1}.json`, `2f71697`): bate com o terminal, idêntico até 14.050 e diferente a partir da projeção em 14.150. O buffer vazio que derrubou a primeira tentativa era o **`ssim_map`**.
+
+### Resultado do par denso
+
+Saída literal do `--comparar`:
+
+```
+ULTIMO passo amostrado com TUDO identico: 16164
+PRIMEIRO passo amostrado com diferenca : 16165
+  forward pixel_state, forward n_contributors, perda v_pixel_state, parametros xyz_ws, parametros opacities
+  primeiro estagio que difere: forward
+```
+
+**Demonstrado:**
+- todos os buffers monitorados (imagem, contribuições por pixel, gradiente da perda, posições, opacidades) ficaram idênticos **em todo passo de 0 a 16.164**;
+- no passo 16.165, a primeira diferença está no forward;
+- **a densificação está descartada como fonte para este par.** Ela termina no passo 14.900 (`refine_stop_iter = 15000`), e o passo 16.165 também não é de reset de opacidade, que ocorre em múltiplos de 3.000.
+
+**Isto refuta a candidata que eu tinha apontado em 2026-10-06**, a densificação do passo 14.100. Ela era apenas candidata, e foi apresentada assim.
+
+**Não demonstrado, e erro meu de desenho:** a saída da ferramenta dizia "o passo 16.165 é o de origem". **O modo leve não sustenta isso**, porque não monitora SH, escalas e rotações. Há duas explicações compatíveis:
+- **(a)** o forward do passo 16.165 produz resultados diferentes a partir de entradas idênticas;
+- **(b)** SH, escala ou rotação de alguma gaussiana divergiram antes, sem ter chegado ainda aos buffers monitorados.
+
+A diferença em `n_contributors`, que depende da geometria e da ordem, e não da cor, restringe (b) a **escala ou rotação**. A mensagem da ferramenta foi corrigida: agora diz "primeiro passo em que se **observa** diferença" e imprime a ressalva dos parâmetros não monitorados.
+
+### Inventário de atômicos no caminho ativo de D4
+
+Contagem em todos os `.slang` e nos `.comp` do radix sort, em D4. Fora as três variantes de backward, o `morton_sort` (desligado em D3) e o `mcmc` (não usado na ADC), sobram dois:
+- **`sum.slang:47`**: `InterlockedAdd` **inteiro** de contagem, usado só na densificação (`gs_trainer.cpp:852-853, 952`), para contar quantas gaussianas duplicar, dividir ou manter. Não roda depois do passo 15.000;
+- **radix sort**: `upsweep.comp:57,66` e `downsweep.comp:137,200`, atômicos **inteiros** de histograma. No `downsweep`, cada posição é indexada por subgrupo (`gl_NumSubgroups * radix + subgroupIndex`) e escrita só pelo representante do subgrupo; a posição dentro do subgrupo vem de soma prefixada por *ballot*. É consistente com a auditoria de 2026-09-02: ordenação estável dada a mesma entrada.
+
+**Leitura, como inferência:** no caminho ativo de D4 não resta acumulação atômica não-associativa. Se isso estiver certo, **a fonte residual não é atômica**. Os candidatos seriam condição de corrida, leitura de memória não inicializada ou comportamento do hardware. Não demonstrado.
+
+### Próximo teste, preparado: determinismo por estágio em estado fixo
+
+`experimentos/testar_estagios.py`. Em 7 pontos do treino (1.050, 5.050, 10.050, 14.050, 16.050, 20.050 e 29.950, nenhum múltiplo de 100), com os parâmetros congelados no estado daquele passo, repete K=20 vezes `forward()` → `compute_pixel_loss_grad()` → `rasterize_backward()`, e conta os hashes distintos de cada buffer.
+
+Nenhuma dessas chamadas altera parâmetros ou momentos. O `rasterize_backward` só escreve nos `v_*`, que zera no início. Cada função abre o próprio `DEVICE_GUARD` (`gs_renderer.cpp:91, 171, 204, 322`; `gs_trainer.cpp:649`), e o `DeviceGuard` é aninhável (`gs_pipeline.h:207-240`). Isso foi verificado no código antes de escrever.
+
+**Leitura pré-definida:**
+- **imagem variando:** o forward é não-determinístico por si só, e a hipótese (a) fica diretamente observada;
+- **`v_*` variando em D4:** a acumulação inteira não é determinística no RADV, o que contradiria o desenho de D4;
+- **tudo idêntico:** (a) cai, e a fonte fica no otimizador ou na interação entre passos.
+
+**Controle positivo obrigatório: o mesmo teste em D3.** Lá o backward usa `InterlockedAddF32`, e os `v_*` **têm** de variar. Se D3 também der "determinístico", o teste é insensível e o resultado de D4 não vale nada.
+
+Testado com stand-ins: um módulo determinístico dá 1 hash distinto em tudo, e um módulo com backward não-determinístico dá 20 distintos só no buffer afetado. Custo previsto: um treino por degrau, mais 7 × 20 repetições. **Não arrisco nova estimativa de tempo antes de medir:** a de 2026-10-06 errou por um fator de ~11.
+
+## 2026-10-13 — Teste de estágios: **leitura pré-definida corrigida antes de rodar**, e tempo por repetição instrumentado
+
+Nenhuma execução entre 2026-10-07 e hoje. O último commit continua `5d4435b`, e `origin/main` está no mesmo ponto. O `testar_estagios.py` segue **não versionado**, e portanto não chega à Ubuntu por `git pull`.
+
+### Correção da leitura pré-definida de 2026-10-07
+
+A leitura dizia "**tudo idêntico: (a) cai**". **Estava errada, e no sentido favorável à tese.** Ela só valeria se o forward fosse frequentemente não-determinístico, e os dados indicam o contrário:
+- o par completo diverge por volta do passo 14.100, e o par denso no 16.165;
+- como estimativa grosseira, tirada apenas desses dois inícios, isso dá uma taxa da ordem de **1 evento a cada ~3·10⁴ passos por execução**;
+- com K=20 em 7 pontos são 140 forwards, e a chance de observar um evento a essa taxa fica em **~0,5%**.
+
+O teste daria "determinístico" mesmo com (a) verdadeira. **O controle positivo em D3 não cobre esse buraco:** ele mostra que o teste detecta não-determinismo ubíquo, não um evento raro.
+
+**Leitura corrigida, fixada hoje, antes de qualquer execução:**
+- **buffer com mais de um hash distinto:** evidência direta de não-determinismo daquele estágio a partir de entradas idênticas. Esta parte não muda;
+- **tudo idêntico em K repetições:** **não refuta (a).** Refuta apenas um estágio *frequentemente* não-determinístico naquele estado. Reporta-se o limite superior de 95% da taxa por repetição, `1 − 0,05^(1/K)` (≈ 3/K; 0,139 para K=20). Ele pressupõe **tentativas independentes e taxa constante, o que não foi verificado**;
+- **D3 sem variação nos `v_*`:** o teste é insensível, e D4 não vale nada. Esta parte também não muda.
+
+Esta leitura não está no pré-registro: é diagnóstico exploratório, e a correção não é desvio do §11. Fica registrada aqui com data porque **é anterior aos dados**.
+
+**Ressalva que se mantém:** cada leitura de buffer sincroniza a GPU entre um estágio e outro. Se a fonte residual for uma condição de corrida dependente de temporização, o teste pode suprimi-la.
+
+### Mudanças no script
+
+- **Tempo por repetição:** total, chamadas (forward, perda e backward) e leitura com hash, gravados no JSON (`tempo.rep_s`, `chamadas_s`, `leitura_hash_s`, `mediana_rep_s`) e impressos ao fim de cada ponto. **A divisão não separa GPU de CPU.** Não verifiquei se o `DeviceGuard` espera a GPU ao sair, e o `copyFromDevice` espera a fence, então parte do tempo de GPU pode cair na conta da leitura;
+- `--pontos` e `--k` passam a ser argumentos, com os mesmos padrões de antes (7 pontos, K=20). A validação rejeita lista vazia, repetida, negativa ou com múltiplo de 100, e K < 2;
+- **multiplicidades** de cada hash e o limite superior de 95% gravados por buffer;
+- o JSON é **regravado ao fim de cada ponto**, com o campo `completo`, de modo que um aborto não perde os pontos já medidos.
+
+Assinaturas reconferidas no fork, em D4: `forward()` (`python_bindings.cpp:463`), `compute_pixel_loss_grad(size_t)` (`:483`), `rasterize_backward()` (`:455`) e `train_step(size_t, int)` (`:532`), chamado como `module.train_step(image_idx, step)` em `simple_trainer.py:213`.
+
+### Testes no Mac, com stand-ins
+
+Os stand-ins são um fork falso em repositório git, um `vksplat` falso e um `simple_trainer` falso.
+- Hash bate com `tobytes()` em buffer vazio 1-D, vazio 2-D, não contíguo e `int64`.
+- Módulo determinístico: tudo 1, saída 0.
+- Uma única repetição divergente no forward: `pixel_state` e `v_pixel_state` com multiplicidades [19, 1], o resto igual a 1. É o caso raro que importa.
+- Backward não-determinístico: 20 distintos só em `v_xy_vs`.
+- Buffers vazios (`n_contributors` e `v_inv_cov_vs_opacity`) e `v_rgb` não contíguo: rodam sem erro.
+- Treino curto demais: aborta com saída 2, deixando JSON parcial com `completo: false` e 1 ponto.
+- SHA errado e árvore suja: abortam com saída 1.
+- Os seis argumentos inválidos são rejeitados com saída 2.
+- Padrão com 30.000 passos simulados: 7 pontos, K=20, `completo: true`.
+
+**Os stand-ins não medem custo.** O tempo real só sai na Ubuntu.
+
+### Decisão sobre K (item 3), tomada pelo aluno em 2026-10-13, antes dos dados
+
+O problema de poder: aumentar K tem limite. A uma taxa uniforme de ~1/(3·10⁴), detectar com 95% exigiria ~9·10⁴ repetições, o que é inviável. Um K grande só tem poder se a taxa **depender do estado**, crescendo tarde no treino. Por isso os pontos tardios são os candidatos.
+
+**Fase 1:** D4 e D3 com os padrões, 7 pontos e K=20. Ela entrega três coisas:
+- o controle positivo;
+- a checagem de um forward frequentemente não-determinístico;
+- o custo medido por repetição em cada ponto.
+
+**Fase 2, regra fixada agora:**
+- **Condição:** roda só se, na fase 1, **D3** tiver mais de um hash distinto em algum `v_*` **e D4** tiver todos os buffers em 1 nos 7 pontos. Se D4 variar na fase 1, a observação já é direta, e a fase 2 não roda;
+- **degrau e pontos:** D4, nos passos **16.050 e 29.950**, numa única execução nova;
+- **orçamento:** **3 h de repetições no total**, com o mesmo K nos dois pontos. O treino de ~15 min fica fora da conta;
+- **K**, um só para os dois pontos, porque o script aplica um único `--k` = `floor(10800 s / (c₁₆₀₅₀ + c₂₉₉₅₀))`. Aqui `c` é a mediana de segundos por repetição (`tempo.mediana_rep_s`) **do mesmo ponto na fase 1 de D4**. *(Redação inicial, corrigida minutos depois na mesma sessão e antes de qualquer dado: dizia "K por ponto = `floor(5400 s / c)`", o que o script não suporta numa única execução.)*;
+- **leitura:** a mesma da fase 1. Mais de um hash é observação direta; tudo idêntico é reportado como limite superior `1 − 0,05^(1/K)`.
+
+**Declarado antes de rodar:** nem com 3 h se alcança uma taxa uniforme de ~1/(3·10⁴). A fase 2 só tem poder contra uma taxa que cresça com o estado do treino.
+
+Comentário do aluno ao decidir: *"Vamos utilizar o tempo de máquina que for necessário para um bom projeto."*
+
+## Estado em 2026-10-07 — ponto de entrada para sessão nova
+
+### Atualização de 2026-10-07: ler isto primeiro
+
+O restante desta seção foi escrito em 2026-09-25 e está **superado nos pontos abaixo**. Em divergência, este bloco e as entradas datadas de 2026-10-01 a 2026-10-07 prevalecem.
+
+**D4 feito.** SHA `22560858b0f2…`, adendo vinculante (`pre-registro.md` §11.1–§11.11). Série com N=10, dados em `dados/D4/`.
+- **H3.4 refutada** pelo critério do §6: 10 hashes distintos em 10.
+- **Pelo §5.2, D3→D4 é a primeira transição sustentada** da escada: PSNR com Fligner p = 0,0022, razão de IQR 0,115, IC [0,028–0,606]. **Há um confundidor aberto:** a escala da cônica zera quase todo o gradiente de covariância.
+- **Qualidade −0,39 dB** contra D3. Hipótese não testada: o mesmo artefato da escala da cônica. Erro meu de desenho, porque dimensionei pelo máximo do transiente, e não pelo regime.
+- Densificações das 10 execuções idênticas até o evento 129, o passo 13.500. Os `.ply` diferem por **deriva de valor** em ~99% das gaussianas, e não por permutação.
+
+**Onde nasce a divergência de D4:**
+- par com 481 amostras: estado **bit-idêntico em todos os 21 buffers até o passo 14.050**;
+- par com amostragem densa (todo passo, 5 buffers): idêntico até 16.164, primeira diferença no **forward do passo 16.165**. **A densificação está descartada para este par**, porque termina em 14.900.
+- **Origem não determinada:** (a) forward não-determinístico, ou (b) escala ou rotação, que não eram monitoradas, divergindo antes.
+- Inventário de código: no caminho ativo de D4 só restam atômicos inteiros de contagem. A fonte residual provavelmente não é atômica. É inferência.
+
+**Próximo passo, pronto e não executado:** `experimentos/testar_estagios.py`, em D4 e em **D3 como controle positivo**. Comandos na entrada de 2026-10-07. **Em 2026-10-13 a leitura pré-definida foi corrigida antes da execução: "tudo idêntico" não refuta um forward raramente não-determinístico.** O script agora mede o tempo por repetição. Fase 2 (K grande em D4, nos passos 16.050 e 29.950, com 3 h) **já fixada**, com condição de disparo. Ver a entrada de 2026-10-13.
+
+**Plano restante, decidido pelo aluno: todas as iterações antes de escrever.** Data de congelamento sugerida, 16/out, e não confirmada. Itens, em ordem:
+1. teste de estágios;
+2. diagnóstico de `.ply` em D3, com os arquivos no HD externo;
+3. **D4b**, com escala da cônica dimensionada pelo regime, que exige o adendo §11.12 **antes** de rodar;
+4. H4, comparação com os valores publicados do VkSplat;
+5. H3b, executar ou declarar não executada;
+6. cópia em nuvem dos `.ply`.
+
+**Infraestrutura nova:**
+- os `.ply` de D0–D3 estão no HD externo `/media/fabio/Seagate Expansion Drive/tcc-runs-arquivo/` (NTFS), em cópia única, verificada por hash;
+- o fork está clonado no Mac em `~/code/etc/vksplatTCC`, na branch local `d4-rascunho`;
+- execuções instrumentadas custam **~1 s por amostra**, porque a leitura de buffer é serial na CPU. Medir o custo antes de estimar prazo.
+
+**Nenhum capítulo escrito.** Depósito em 06/nov.
+
+---
 
 > Esta é a seção a ler primeiro. O `CLAUDE.md` da raiz aponta para cá.
 >

@@ -284,12 +284,23 @@ def comparar(a_path, b_path) -> int:
         if ultimo_igual is not None:
             janela = list(range(ultimo_igual + 1, p + 1))
             dens = [s for s in janela if eh_densificacao(s)]
-            print(f"\n  a divergencia nasceu em algum passo de {janela[0]} a {janela[-1]} "
-                  f"({len(janela)} passo(s))")
+            print(f"\n  diferenca observada pela primeira vez em algum passo de {janela[0]} a "
+                  f"{janela[-1]} ({len(janela)} passo(s))")
             print(f"  passos de densificacao nessa janela: {dens if dens else 'nenhum'}")
             if len(janela) == 1:
-                print(f"  -> janela de 1 passo: o passo {p} e o de origem; "
-                      f"densificacao nele: {'SIM' if eh_densificacao(p) else 'nao'}")
+                print(f"  -> janela de 1 passo: {p} e o PRIMEIRO passo em que se OBSERVA "
+                      f"diferenca; densificacao nele: {'SIM' if eh_densificacao(p) else 'nao'}")
+        # Ressalva de conjunto parcial (corrigido em 2026-10-07). Se o conjunto
+        # gravado nao cobre todos os parametros, uma diferenca que aparece primeiro
+        # no forward/perda pode vir de um parametro NAO monitorado que ja divergira
+        # antes. A versao anterior desta mensagem dizia "o passo p e o de origem",
+        # o que o modo leve nao sustenta.
+        monitorados = {n for e, ns in estagios if e == "parametros" for n in ns}
+        faltam = sorted({n for e, ns in ESTAGIOS if e == "parametros" for n in ns} - monitorados)
+        if faltam and primeiro != "parametros":
+            print(f"\n  ATENCAO: parametros NAO monitorados neste modo: {', '.join(faltam)}.")
+            print(f"  A origem e o forward do passo {p} OU uma divergencia anterior nesses "
+                  f"parametros, que ainda nao chegara aos buffers monitorados.")
         # Salvaguarda contra falso positivo (caderno, 2026-10-06): uma diferenca
         # que aparece SO nos parametros so e aceita como divergencia real se a
         # imagem renderizada tambem divergir no passo seguinte.
