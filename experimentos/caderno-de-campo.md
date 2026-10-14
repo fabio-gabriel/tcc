@@ -1971,7 +1971,139 @@ A condição era D3 com mais de um hash em algum `v_*` e D4 com tudo igual a 1 n
 
 Como declarado antes de rodar: nem assim se alcança uma taxa uniforme da ordem de 3·10⁻⁵ por passo.
 
-**Pendente:** as linhas de avaliação (PSNR, SSIM, LPIPS) da execução de D4 não foram coladas. As que vieram são da execução de D3 (PSNR 27,35, SSIM 0,864, LPIPS-Alex 0,076), impressas antes da tabela de D3.
+**Avaliação e contadores da execução de D4, do `D4.log` enviado pelo aluno** (não versionado):
+- **PSNR 27,00, SSIM 0,847, LPIPS-Alex 0,100** (VGG 0,131). Coincide com a série de D4 (mediana 26,998, SSIM 0,8471, LPIPS-Alex 0,0998) e não com D3. Os valores da execução de D3 são PSNR 27,35, SSIM 0,864 e LPIPS-Alex 0,076. É a terceira confirmação independente de que cada execução rodou o seu degrau.
+- **Contadores dos próprios timers do fork**, impressos no fim do treino:
+  - `ProjectionForward`, `RasterizeForward`, `ComputeSSIMGradient` e `RasterizeBackward`: **30.140** cada, ou seja 30.000 do treino mais 7 × 20 do teste;
+  - `FusedProjectionBackwardOptimizerStep` e `DefaultPostBackward`: **exatamente 30.000**.
+
+  **As repetições executaram os três estágios e nunca chamaram o otimizador nem o pós-backward.** Até aqui isso vinha da leitura do código. Agora está confirmado pela instrumentação do próprio fork.
+- `_Where` = 288 e `_Sum` = 432, isto é 2 × 144 e 3 × 144: são os 144 eventos de densificação.
+- Nenhuma ocorrência de `Timed out` nem de `commandBatchInProgress changed`.
+
+## 2026-10-14 — Fase 2 em execução; **o alarme de "congelamento" era o silêncio esperado do script**
+
+A fase 2 foi iniciada com o comando registrado. O aluno relatou que o terminal parecia congelado depois de `[estagios] passo 16050: 3406 repeticoes ...`, com o treino em 53%. O relato inicial falava em "3046", **mas a linha literal do log diz 3406**: o K é o registrado e não há desvio.
+
+**Causa da aparência de travamento, omissão minha de desenho:** o script não imprime nada durante as K repetições de um ponto. Com K=3406 e o custo medido de ~1,586 s por repetição, são ~90 min sem saída por ponto.
+
+**Evidência de que está rodando, saída literal das 17:05:51:**
+- processo `97254`, `ELAPSED 01:13:46`, `STAT Rl+`, 100% de CPU;
+- última escrita no log às 15:59:07, ou seja **66,7 min** antes, abaixo dos ~90 min esperados para o ponto;
+- `gpu_busy_percent` em 200 amostras ao longo de ~10 s: **77 acima de zero**, com valores até 53. No travamento de 2026-10-13/14 estava em 0. A GPU recebe trabalho periodicamente, como esperado das rajadas de cada repetição;
+- RSS de 1.411.492 KB, e 1.411.516 KB 60 s depois. **Sem vazamento.**
+
+**Previsão a partir do custo medido:**
+- passo 16.050 termina por volta das 17:29;
+- ~8 min de treino até o passo 29.950;
+- passo 29.950 termina por volta das 19:07;
+- avaliação e relatório por volta das 19:10.
+
+**A corrigir depois desta execução, não durante:** imprimir uma linha de progresso a cada 100 repetições. Não se altera o instrumento no meio da execução.
+
+## 2026-10-14 — Fase 2: **um evento em 3.406 repetições, só em `v_rgb`, no passo 16.050**
+
+JSON em `pivo-reprodutibilidade-3dgs/dados/estagios/estagios_D4_fase2.json`, com SHA-256 `b815bd17…`, ainda não commitado. A tabela final foi colada pelo aluno.
+
+### Integridade
+
+- `base_commit` = D4, commit de diagnóstico `48324989…` (o mesmo da fase 1), SHA do patch `f44cd7c9…`;
+- módulo recompilado 0,4 s antes do início;
+- `completo: true`, K=3406, pontos 16.050 e 29.950;
+- de 18:52Z a 22:13Z, ou seja **3 h 21 min**, contra os ~3 h 20 min previstos pelo custo medido;
+- avaliação PSNR 27,00, SSIM 0,847, LPIPS-Alex 0,100, compatível com D4;
+- mediana de 1,637 s por repetição no 16.050 e 1,627 s no 29.950. Máximo de 1,681 s e **nenhuma repetição acima de 1,5× a mediana**: não há anomalia de tempo.
+
+### Resultado
+
+| passo | `pixel_state` | `n_contributors` | `v_pixel_state` | `v_xy_vs` | `v_inv_cov_vs_opacity` | `v_rgb` |
+|---|---|---|---|---|---|---|
+| 16.050 | 1 | 1 | 1 | 1 | 1 | **2, multiplicidades [3405, 1]** |
+| 29.950 | 1 | 1 | 1 | 1 | 1 | 1 |
+
+**Uma única repetição** do passo 16.050 produziu um `v_rgb` diferente das outras 3.405. Nela, todos os outros buffers coincidiram com as demais repetições. As multiplicidades [3405, 1] excluem uma mudança de estado no meio da série, que daria duas classes grandes. É um evento isolado. **O JSON não registra em qual repetição ocorreu**, porque grava contagens e não a sequência de hashes.
+
+### Leitura pela regra fixada, e o que ela não previu
+
+A regra de 2026-10-13 diz que mais de um hash distinto é evidência direta de não-determinismo daquele estágio a partir de entradas idênticas. **O evento satisfaz a regra.** Duas qualificações, que a regra não antecipou e que restringem a leitura, não a ampliam:
+
+1. **"Entradas idênticas" só foram verificadas nos buffers com hash.** O backward também lê intermediários da projeção e da ordenação (`xy_vs`, `inv_cov_vs_opacity`, `rgb`, `sorted_gauss_idx`, `tile_ranges`; `gs_renderer.cpp:348-356`), que o forward recalcula a cada repetição e que não têm hash. Atenua: nessa repetição a imagem, as contribuições e o gradiente da perda coincidiram. E pela equação do backward, `v_rgb` depende de α, T e `v_pixel_state`, não de `rgb`. Uma mudança em α ou T que alterasse `v_rgb` sem tocar `v_xy_vs` nem a imagem é improvável, mas não está excluída.
+2. **A cadeia de medição faz parte da observação.** Uma falha transitória na leitura, que passa por cópia GPU → staging → RAM, `memcpy`, cópia numpy e hash, cerca de 71 MB por leitura de `v_rgb`, produziria a mesma assinatura. A memória da máquina não tem ECC. **Não se separa o cálculo da leitura com este dado.**
+
+**Ponto a favor de o evento ser real**, sem demonstrar: em D4, `v_rgb` é soma inteira, associativa e comutativa (§11.3). **A ordem das invocações não pode produzir esse evento.** Se ele está no cálculo, algum termo foi diferente, ou faltou, ou se duplicou. Seria uma fonte de natureza diferente da não-associatividade: condição de corrida ou leitura de dado velho.
+
+**Taxa:** 1 evento em 6.812 repetições, somando os dois pontos. O IC 95% exato de Poisson é **[3,7·10⁻⁶ ; 8,2·10⁻⁴]** por repetição. Supor a mesma taxa nos dois pontos não está fixado. Por ponto: 1/3406 no 16.050, e no 29.950 zero eventos, com limite superior de 8,8·10⁻⁴.
+
+### Relação com o par denso de 2026-10-07, compatível e não demonstrada
+
+No par denso, a primeira diferença apareceu no forward do passo 16.165, com `n_contributors` diferente. Um evento só em `v_rgb` altera apenas os SH, e **não** mudaria `n_contributors` no forward seguinte. Portanto este evento, tal como observado, **não explica** aquele par. Uma classe mais ampla, "erro raro e transitório de termo no backward", que pudesse atingir também o gradiente de cônica, explicaria, via escala ou rotação, a hipótese (b) de 2026-10-07. É conjectura.
+
+### Observação lateral, sem interpretação
+
+Esta execução termina com **5.940.699** gaussianas. A série de D4 vai de 5.940.141 a 5.940.245, com amplitude de 104. A execução fica 454 acima do máximo das 10. A da fase 1 terminou no valor modal, 5.940.143. A configuração é a mesma do `tcc_runner.py` (`TrainerConfig()` padrão, mesmos caminhos, `TRAIN_DEVICE` 0), e antes do passo 16.050 não há repetição nenhuma. **Uma observação não é distribuição.** Fica registrado.
+
+### Próximo teste possível, a decidir com o aluno: captura do evento
+
+Para separar cálculo de leitura e caracterizar o termo:
+- guardar na RAM o array de referência da primeira repetição;
+- quando o hash de um buffer divergir da referência, **reler imediatamente o mesmo buffer da GPU sem recalcular**. Se a releitura der o hash normal, foi a leitura. Se reproduzir o hash divergente, o conteúdo da GPU difere, e foi o cálculo;
+- gravar o diff elemento a elemento em `.npz`: índices, valores e XOR de bits. **Um único bit trocado** sugere falha de memória. **Uma diferença do tamanho de um termo plausível** sugere corrida.
+
+O custo extra só existe quando há evento. Com taxa ~1/3406 no passo 16.050, capturar com ~95% de chance exige ~10⁴ repetições, ~4,5 h nesse ponto.
+
+## 2026-10-14 — Captura de eventos: implementada, testada e **fixada antes de rodar**
+
+Decisão do aluno: seguir com a captura esta noite e redigir o adendo §11.12 do D4b amanhã.
+
+### Verificado no código antes de escrever
+
+Cada acesso a uma propriedade de buffer passa por `buffer_to_array`:
+- ele chama `copyFromDevice` (`python_bindings.cpp:29-30`, `on_device` verdadeiro por padrão);
+- devolve um `py::array_t` novo (`:585-588`), que o pybind11 copia porque não há objeto-base.
+
+**Reler a propriedade, portanto, copia de novo da GPU sem recalcular**, que é a premissa da releitura.
+
+Em D4, os `v_*` são declarados `float` no binding (`:671-674`) e contêm bits de `int32`, porque o D4 mudou só os shaders. O diff grava **bits crus** (`uint32`), e a análise reinterpreta conforme o degrau.
+
+### O que o script faz (`testar_estagios.py`)
+
+- **Referência** = repetição 0 de cada ponto, com hash e cópia do array na RAM (~250 MB nos pontos tardios).
+- Quando o hash diverge da referência: **releitura imediata** do mesmo buffer, depois o diff elemento a elemento contra a referência. Grava `evento_<degrau>_p<passo>_rep<i>_<buffer>.npz` com `idx`, `ref`, `obs`, `releitura` e `shape`, e registra no JSON os três hashes, o popcount do XOR e o número de elementos diferentes. Imprime uma linha `EVENTO` na hora.
+- No máximo 10 capturas por buffer por ponto. As demais divergências só são contadas.
+- **Linha de progresso a cada 100 repetições**, a correção prometida na entrada anterior.
+
+### Regra de leitura, fixada agora
+
+- **releitura == observado:** o conteúdo **na GPU** difere. O cálculo, ou a memória da GPU depois dele, produziu outro valor;
+- **releitura == referência:** falha **transitória da leitura** (GPU → staging → RAM → numpy → hash), e não do cálculo;
+- **releitura igual a nenhum dos dois:** instável, não classificado;
+- **padrão do diff:**
+  - um elemento com popcount 1 **sugere** bit trocado, falha de memória;
+  - poucos elementos com diferença do tamanho de um termo, em quanta inteiros de D4, **sugerem** termo diferente no cálculo.
+
+  **Sugere, não demonstra.** Um bit trocado na VRAM depois do cálculo também persiste na releitura. Nesse caso "releitura == observado" não separa cálculo de memória da GPU, e só o padrão do diff orienta.
+
+**Execução fixada:** D4, **somente o passo 16.050**, **K = 10.000**. Com a taxa do único evento observado (1/3406), a probabilidade de pelo menos uma captura é de ~95%.
+- **Custo, a partir do medido** (1,637 s por repetição no 16.050): ~4 h 33 min de repetições, mais ~20 min de treino e avaliação, **~4 h 55 min**;
+- **declarado:** o estado no passo 16.050 é o de uma trajetória nova, e não o da fase 2, porque as execuções de D4 divergem depois de ~13.500. Se a taxa depender do estado, ela pode ser outra;
+- **se não houver evento:** limite superior de 95% de 3,0·10⁻⁴ por repetição neste estado. O evento da fase 2 continua sem caracterização.
+
+### Testes no Mac
+
+O stand-in imita o binding nos pontos relevantes:
+- cada leitura devolve uma cópia nova;
+- os `v_*` são `int32` expostos como `float`;
+- os métodos sem guard falham fora de lote.
+
+Eventos injetados:
+- termo +37 na gaussiana 123: capturado como "releitura == observado", idx 370, ou seja gaussiana 123 e componente 1, com diferença de **+37** em inteiro;
+- bit trocado só numa leitura: "releitura == referência", popcount 1;
+- bit trocado no conteúdo: "releitura == observado", popcount 1, diferença de 2²⁰;
+- buffer vazio numa repetição: tamanhos [256, 0], sem `.npz`, sem erro;
+- repetição 0 anômala: 59 divergências e só 10 capturas, com multiplicidades [59, 1] que mostram a referência anômala;
+- sem evento: lista vazia;
+- progresso a cada 100 repetições;
+- `--progresso -1` rejeitado.
 
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
