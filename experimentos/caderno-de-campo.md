@@ -1916,6 +1916,63 @@ O JSON grava `base_commit`, `vksplat_commit`, o SHA-256 do patch e o caminho e o
 
 **Erro de stand-in, corrigido:** na primeira rodada, o caso "raro" não foi detectado porque o `train_step` falso também chama `forward` e o disparo caiu no treino. O erro era do teste, não do script. Refeito com o disparo na 7ª repetição do passo 105: detectado.
 
+## 2026-10-14 — Teste de estágios, fase 1: **em D3 o não-determinismo está todo no backward**; em D4 nada varia em 140 repetições; a condição da fase 2 foi satisfeita
+
+JSONs em `pivo-reprodutibilidade-3dgs/dados/estagios/estagios_D{3,4}.json`, ainda não commitados. SHA-256 dos arquivos:
+- D3: `9d291cb9…`;
+- D4: `b24aa2a4…`.
+
+As tabelas saíram no terminal e foram coladas pelo aluno.
+
+### Integridade, conferida antes de ler os resultados
+
+- `base_commit` igual às tags: D3 `d222c47…`, D4 `22560858…`;
+- commits de diagnóstico `9e78e28…` (D3) e `48324989…` (D4);
+- SHA-256 do patch igual ao do arquivo versionado, `f44cd7c9…`;
+- `mtime` do módulo 0,5 a 0,6 s antes do início de cada execução, ou seja, recompilado imediatamente antes. Não houve binário antigo;
+- `completo: true`, 7 pontos e K=20 nos dois;
+- as mesmas imagens sorteadas nos mesmos passos dos dois degraus (68, 81, 77, 91, 60, 38, 41);
+- D4 termina com **5.940.143 gaussianas, o valor modal da série de D4**, atingido por 5 das 10 execuções. D3 termina com 5.808.817, perto da mediana de D3. É evidência independente de que cada execução carregou os shaders do seu degrau.
+
+**A trava de 2026-10-13/14 fica corroborada de forma indireta.** A única mudança foi o guard, e com ele as mesmas chamadas rodaram 280 vezes sem travar. **O stack da execução travada não foi capturado.** A causa continua inferida pela leitura do código e corroborada pela correção; não foi observada.
+
+### Resultado
+
+| | `pixel_state` | `n_contributors` | `v_pixel_state` | `v_xy_vs` | `v_inv_cov_vs_opacity` | `v_rgb` |
+|---|---|---|---|---|---|---|
+| D3, 7 pontos | 1 | 1 | 1 | **20** | **20** | **20** |
+| D4, 7 pontos | 1 | 1 | 1 | 1 | 1 | 1 |
+
+Em D3, as multiplicidades dos `v_*` são `[1]×20` em todos os pontos: **cada uma das 140 repetições do backward produziu um gradiente diferente**, a partir de entradas idênticas.
+
+### Leitura, pela regra fixada em 2026-10-13
+
+- **Controle positivo, D3: aprovado.** O teste detecta não-determinismo no backward, e o detecta em toda repetição.
+- **D3, localização:** forward e perda deram 1 hash em 140 repetições, e o backward deu 140 hashes distintos em 140. **No estado fixo, o não-determinismo de D3 está inteiro no backward.** É a localização por estágio, observada diretamente, que o mecanismo do TCC prevê: o backward é onde estão os atômicos de `float`.
+- **D4:** zero eventos em 140 repetições, em todos os estágios. Por ponto, o limite superior de 95% da taxa por repetição é 0,139. **Isto não refuta (a)**, porque refuta só um estágio *frequentemente* não-determinístico. Agregar os 7 pontos daria um limite menor, mas supõe taxa constante entre estados, o que não foi fixado nem verificado, e por isso não se reporta como resultado.
+- **Contraste D3 × D4 no backward:** 140 de 140 contra 0 de 140, com instrumentação idêntica. É a evidência no nível de estágio de que a acumulação inteira elimina o não-determinismo do backward. **Escrutínio, porque favorece a tese:**
+  - **buffers zerados dariam hash constante de forma trivial.** O JSON não grava os valores, então isso não foi verificado diretamente. Mas os mesmos buffers alimentam o otimizador, e D4 treina até PSNR ≈ 27 na série. Gradiente identicamente nulo não treinaria. É exclusão indireta;
+  - **a sincronização é pesada e igual nos dois degraus** (ver tempo, abaixo). Uma corrida dependente de temporização pode estar suprimida nos dois. Isso não afeta o contraste, que é sobre o atômico de `float`, mas limita o que D4 diz sobre a fonte residual.
+
+### Tempo, medido
+
+- Mediana por repetição, de 0,28 s (N ≈ 0,33 M) a **1,59 s** (N ≈ 5,9 M, em D4).
+- **~97% do tempo é leitura com hash na CPU.** Chamadas (GPU) ~0,04 s contra leitura ~1,54 s nos pontos tardios. A GPU fica ociosa a maior parte do tempo instrumentado, o que **reforça a ressalva de temporização**.
+- Duração: D4 levou 19 min e D3 20 min de ponta a ponta, treino incluído.
+
+### Fase 2: condição satisfeita, K calculado pela regra
+
+A condição era D3 com mais de um hash em algum `v_*` e D4 com tudo igual a 1 nos 7 pontos. As duas partes valem.
+
+`K = floor(10800 / (c₁₆₀₅₀ + c₂₉₉₅₀)) = floor(10800 / (1,5864 + 1,5836)) = floor(10800 / 3,1700) =` **3406**. Os `c` vêm de `tempo.mediana_rep_s` da fase 1 de D4.
+
+- Limite superior de 95%, se não houver eventos: **8,8·10⁻⁴ por repetição, por ponto**.
+- Custo estimado **a partir do custo medido**: 2 × 3406 × ~1,585 s ≈ 3,0 h de repetições, mais ~16 min de treino, ou **~3 h 20 min**.
+
+Como declarado antes de rodar: nem assim se alcança uma taxa uniforme da ordem de 3·10⁻⁵ por passo.
+
+**Pendente:** as linhas de avaliação (PSNR, SSIM, LPIPS) da execução de D4 não foram coladas. As que vieram são da execução de D3 (PSNR 27,35, SSIM 0,864, LPIPS-Alex 0,076), impressas antes da tabela de D3.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -1934,7 +1991,12 @@ O restante desta seção foi escrito em 2026-09-25 e está **superado nos pontos
 - **Origem não determinada:** (a) forward não-determinístico, ou (b) escala ou rotação, que não eram monitoradas, divergindo antes.
 - Inventário de código: no caminho ativo de D4 só restam atômicos inteiros de contagem. A fonte residual provavelmente não é atômica. É inferência.
 
-**Próximo passo, pronto e não executado:** `experimentos/testar_estagios.py`, em D4 e em **D3 como controle positivo**. Comandos na entrada de 2026-10-07. **Em 2026-10-13 a leitura pré-definida foi corrigida antes da execução: "tudo idêntico" não refuta um forward raramente não-determinístico.** O script agora mede o tempo por repetição. Fase 2 (K grande em D4, nos passos 16.050 e 29.950, com 3 h) **já fixada**, com condição de disparo. Ver a entrada de 2026-10-13. **Em 2026-10-14 a primeira tentativa travou no passo 1.050, por erro meu de uso da API.** O teste agora exige o patch de binding `experimentos/patches/estagios_bindings.patch`, numa branch `estagios-D{3,4}` filha da tag, e a recompilação do módulo. Ver a entrada de 2026-10-14.
+**Teste de estágios, fase 1, feito em 2026-10-14.** Ver a entrada de mesmo título:
+- **D3:** forward e perda determinísticos; **backward com um hash distinto em cada uma das 140 repetições**;
+- **D4:** nenhuma variação em 140 repetições;
+- controle positivo aprovado.
+
+**Próximo passo: fase 2**, em D4, nos passos 16.050 e 29.950, com **K=3406**, calculado pela regra fixada. Custo estimado de ~3 h 20 min. Histórico do teste: leitura corrigida em 2026-10-13; primeira tentativa travada por erro meu de API e corrigida pelo patch de binding `experimentos/patches/estagios_bindings.patch` (entradas de 2026-10-13 e 2026-10-14).
 
 **Plano restante, decidido pelo aluno: todas as iterações antes de escrever.** Data de congelamento sugerida, 16/out, e não confirmada. Itens, em ordem:
 1. teste de estágios;
