@@ -1834,6 +1834,88 @@ O problema de poder: aumentar K tem limite. A uma taxa uniforme de ~1/(3·10⁴)
 
 Comentário do aluno ao decidir: *"Vamos utilizar o tempo de máquina que for necessário para um bom projeto."*
 
+## 2026-10-14 — Fase 1 do teste de estágios **travou no passo 1.050**: a causa provável é um erro meu de uso da API do fork
+
+### Observado, saída literal colada pelo aluno
+
+A primeira execução foi a de D4. O treino seguiu até o passo 1.050, imprimiu `[estagios] passo 1050: 20 repeticoes ...` e não imprimiu mais nada. Diagnóstico do aluno às 04:37 de 2026-10-14:
+- `PID=35974`, `ELAPSED 09:26:27`, `STAT Rl+`, `%CPU 100`, `RSS 1407392`, `WCHAN -`;
+- no `top -H`, uma única thread a 99,9% de CPU e as outras 33 dormindo;
+- `gpu_busy_percent` = **0**;
+- memória: 10 GiB disponíveis e swap praticamente sem uso. **Não é falta de memória.**
+
+O `dmesg` não chegou a ser visto, porque ficou parado no pedido de senha do `sudo`.
+
+O perfil é de uma thread girando em espaço de usuário com a GPU ociosa. Nenhum JSON foi gravado, porque o primeiro ponto não terminou.
+
+### Mecanismo provável, lido no fork em D4. **Hipótese, a confirmar pelo stack**
+
+1. `config.h:6` define `ENABLE_ASSERTION 0`. Com isso, `_THROW_ERROR` é **no-op** (`config.h:44`): as checagens do fork não lançam nada, seguem em frente.
+2. `writeTimestamp` (`gs_pipeline.cpp:602-618`) deveria recusar-se a rodar sem lote de comandos aberto (`:603-604`). Como a checagem é no-op, ele grava `vkCmdWriteTimestamp` num command buffer **fora do estado de gravação** e incrementa `timestampNumWritten`.
+3. `executeComputeSSIMGradient` cria o timer (`gs_trainer.cpp:647`) **antes** do `DEVICE_GUARD` (`:649`). O mesmo vale para `executeRasterizeBackward`: o timer está em `gs_renderer.cpp:316` e o guard em `:321`. No treino normal isso é inofensivo, porque as duas funções rodam dentro do guard externo do `train_step` (`python_bindings.cpp:538`). **No meu teste elas são chamadas do Python sem guard externo** (`python_bindings.cpp:455` e `:483` não abrem guard). Só `forward()` abre (`:464`).
+4. Em seguida o guard abre o lote. O `beginCommandBatch` reinicia o command buffer e zera o pool de consultas (`gs_pipeline.cpp:520-523`). O timestamp gravado fora do lote se perde, mas o contador continua dizendo que ele existe.
+5. No fim do lote, `endCommandBatch` lê `timestampNumWritten` consultas com `VK_QUERY_RESULT_WAIT_BIT` (`gs_pipeline.cpp:584-589`). A consulta 0 foi zerada e nunca escrita, então nunca fica disponível. **A espera não termina.**
+
+**Previsões que testam a hipótese:**
+- o stack da thread presa tem `vkGetQueryPoolResults` dentro de `endCommandBatch`, chamado pelo destrutor do `DeviceGuard` em `executeComputeSSIMGradient`;
+- o `dmesg` **não** mostra reset da GPU. Não houve travamento de GPU: ela terminou o trabalho e ficou ociosa.
+
+Que o RADV implemente essa espera girando a CPU é inferência minha, compatível com 100% de CPU e `WCHAN -`, e não foi verificada no código do Mesa.
+
+### Erro meu
+
+Em 2026-10-07 registrei que "cada função abre o próprio `DEVICE_GUARD`". Conferi que o guard **existe**, e não o que roda **antes** dele. E os stand-ins não modelam o estado de lote do binding real, então nenhum teste no Mac podia pegar isto. **Lição:** um stand-in testa a lógica do script, não as pré-condições da API real. Chamar o binding numa ordem que o próprio fork nunca usa exige ler a função inteira, e não só procurar o guard.
+
+### O que não é afetado
+
+O rastreador (2026-10-05/06) só lia buffers depois de `train_step` retornar e nunca chamava estágios isolados. Os dados de trajetória não passam por este caminho.
+
+### Pendente
+
+- confirmar pelo stack e pelo `dmesg`. **A saída ainda não veio**, e o redesenho abaixo parte da hipótese;
+- encerrar o processo.
+
+### Redesenho: decisão do aluno pela opção B, binding auxiliar
+
+Opções apresentadas:
+- **A:** só o forward, sem tocar no fork, perdendo o controle positivo;
+- **B:** binding auxiliar, mantendo o desenho completo.
+
+O aluno escolheu **B**.
+
+**Patch, `experimentos/patches/estagios_bindings.patch`, só no binding.** Acrescenta a `python_bindings.cpp` dois métodos, `compute_pixel_loss_grad_guarded` e `rasterize_backward_guarded`. Cada um abre um `DeviceGuard` e chama o método original, o mesmo padrão de `forward()` (`python_bindings.cpp:463-468`). Conferido no Mac:
+- `python_bindings.cpp` é idêntico entre D3 e D4;
+- o patch aplica limpo nas duas tags;
+- comparada à tag, a árvore inteira de `vksplat/` difere **apenas** em `python_bindings.cpp`. Nenhum `.slang` nem `.spv` muda.
+
+**Não compilado no Mac**, que não tem o ambiente Vulkan. A primeira compilação será na Ubuntu.
+
+**Por que o patch corrige o problema, pelo código:**
+- com o lote já aberto pelo guard externo, o timer criado antes do `DEVICE_GUARD` interno grava dentro do lote, como acontece no `train_step`;
+- o `~DeviceGuard` chama `endCommandBatch(true)` (`gs_pipeline.h:47`, `:229`), que espera a fence. Cada estágio é síncrono, e o tempo de "chamadas" passa a incluir a GPU, o que corrige a ressalva de 2026-10-13 sobre a divisão do tempo;
+- a cópia da imagem de referência para a GPU (`gs_trainer.cpp:636-641`) passa por `HOST_GUARD`, que fecha e reabre o lote com o mecanismo de marcadores do próprio fork. É o mesmo caminho do treino normal, porque o cache de imagens fica na CPU.
+
+**Diferença declarada em relação ao treino:** no `train_step`, forward, perda e backward vão num único lote. Aqui cada estágio é submetido e sincronizado separadamente. A aritmética é a mesma, a temporização não. A ressalva de 2026-10-13 sobre suprimir uma condição de corrida vale ainda mais.
+
+**Mudanças no script.** Antes de treinar, ele exige:
+- `HEAD^` igual à tag do degrau;
+- diff `HEAD^..HEAD` só em `python_bindings.cpp`, com as linhas alteradas idênticas às do patch;
+- árvore limpa;
+- módulo carregado com os dois métodos. Isso pega um binário antigo: o `.so` não é versionado e o `checkout` não o troca, a mesma armadilha do §3.2.
+
+O JSON grava `base_commit`, `vksplat_commit`, o SHA-256 do patch e o caminho e o `mtime` do módulo.
+
+**Testes no Mac.** Desta vez o stand-in **modela a pré-condição do lote**: os métodos sem guard falham fora de lote. O fork falso contém o `python_bindings.cpp` real de D4, com o patch commitado. Resultados:
+- o stand-in falha ao chamar `compute_pixel_loss_grad` fora de lote, e funciona com `_guarded`;
+- determinístico: tudo 1;
+- uma repetição divergente no forward: multiplicidades [19, 1] em `pixel_state` e `v_pixel_state`;
+- backward não-determinístico: 20 em `v_xy_vs`;
+- buffers vazios e não contíguos: rodam;
+- aborto: saída 2, com JSON parcial;
+- saída 1, **antes de treinar**, em cada um destes casos: tag sem patch; árvore suja; commit que altera um arquivo a mais; diff diferente do patch; dois commits sobre a tag; módulo sem os métodos.
+
+**Erro de stand-in, corrigido:** na primeira rodada, o caso "raro" não foi detectado porque o `train_step` falso também chama `forward` e o disparo caiu no treino. O erro era do teste, não do script. Refeito com o disparo na 7ª repetição do passo 105: detectado.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -1852,7 +1934,7 @@ O restante desta seção foi escrito em 2026-09-25 e está **superado nos pontos
 - **Origem não determinada:** (a) forward não-determinístico, ou (b) escala ou rotação, que não eram monitoradas, divergindo antes.
 - Inventário de código: no caminho ativo de D4 só restam atômicos inteiros de contagem. A fonte residual provavelmente não é atômica. É inferência.
 
-**Próximo passo, pronto e não executado:** `experimentos/testar_estagios.py`, em D4 e em **D3 como controle positivo**. Comandos na entrada de 2026-10-07. **Em 2026-10-13 a leitura pré-definida foi corrigida antes da execução: "tudo idêntico" não refuta um forward raramente não-determinístico.** O script agora mede o tempo por repetição. Fase 2 (K grande em D4, nos passos 16.050 e 29.950, com 3 h) **já fixada**, com condição de disparo. Ver a entrada de 2026-10-13.
+**Próximo passo, pronto e não executado:** `experimentos/testar_estagios.py`, em D4 e em **D3 como controle positivo**. Comandos na entrada de 2026-10-07. **Em 2026-10-13 a leitura pré-definida foi corrigida antes da execução: "tudo idêntico" não refuta um forward raramente não-determinístico.** O script agora mede o tempo por repetição. Fase 2 (K grande em D4, nos passos 16.050 e 29.950, com 3 h) **já fixada**, com condição de disparo. Ver a entrada de 2026-10-13. **Em 2026-10-14 a primeira tentativa travou no passo 1.050, por erro meu de uso da API.** O teste agora exige o patch de binding `experimentos/patches/estagios_bindings.patch`, numa branch `estagios-D{3,4}` filha da tag, e a recompilação do módulo. Ver a entrada de 2026-10-14.
 
 **Plano restante, decidido pelo aluno: todas as iterações antes de escrever.** Data de congelamento sugerida, 16/out, e não confirmada. Itens, em ordem:
 1. teste de estágios;

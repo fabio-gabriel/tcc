@@ -1,0 +1,33 @@
+--- a/vksplat/src/python_bindings.cpp
++++ b/vksplat/src/python_bindings.cpp
+@@ -490,6 +490,21 @@
+         }
+     }
+ 
++    // TCC, diagnostico de estagios (experimentos/testar_estagios.py). So o
++    // binding muda; nenhum shader. compute_pixel_loss_grad e rasterize_backward
++    // nao abrem lote de comandos e, chamados isolados do Python, criam o timer
++    // fora de lote (gs_trainer.cpp:647, gs_renderer.cpp:316) e travam em
++    // endCommandBatch. Estas versoes abrem o lote antes, como forward().
++    void compute_pixel_loss_grad_guarded(size_t train_idx) {
++        auto deviceGuard = DeviceGuard(&trainer);
++        compute_pixel_loss_grad(train_idx);
++    }
++
++    void rasterize_backward_guarded() {
++        auto deviceGuard = DeviceGuard(&trainer);
++        rasterize_backward();
++    }
++
+     void post_backward_step(int step) {
+         if (config.strategy == TrainerConfig::Strategy::Default) {
+             try {
+@@ -634,6 +649,8 @@
+              "Execute the backward rasterization trainer")
+         .def("forward", &VkSplat::forward, "Execute forward all the way")
+         .def("compute_pixel_loss_grad", &VkSplat::compute_pixel_loss_grad, "Execute compute gradient of pixel loss")
++        .def("compute_pixel_loss_grad_guarded", &VkSplat::compute_pixel_loss_grad_guarded, "TCC: loss grad with own DeviceGuard")
++        .def("rasterize_backward_guarded", &VkSplat::rasterize_backward_guarded, "TCC: rasterize backward with own DeviceGuard")
+         .def("set_train_image", &VkSplat::set_train_image, "Train on the give image for one step.")
+         .def("train_step", &VkSplat::train_step, "Train on the give image for one step.")
+         .def("render_train", &VkSplat::render_train, "Render the train camera pose to buffer.")

@@ -16,16 +16,30 @@ COMO
 ----
 Em pontos escolhidos do treino, depois do `train_step`, com os parametros
 congelados naquele estado, repete K vezes:
-    forward()                      -> hash de pixel_state, n_contributors
-    compute_pixel_loss_grad(img)   -> hash de v_pixel_state
-    rasterize_backward()           -> hash de v_xy_vs, v_inv_cov_vs_opacity, v_rgb
+    forward()                              -> hash de pixel_state, n_contributors
+    compute_pixel_loss_grad_guarded(img)   -> hash de v_pixel_state
+    rasterize_backward_guarded()           -> hash de v_xy_vs, v_inv_cov_vs_opacity, v_rgb
 Nenhuma dessas chamadas altera parametros nem os momentos do otimizador:
 rasterize_backward so escreve nos v_* (que zera no inicio,
-gs_renderer.cpp:323-325); o otimizador e outra chamada. Cada funcao abre o
-proprio DEVICE_GUARD (gs_renderer.cpp:91,171,204,322; gs_trainer.cpp:649), e
-DeviceGuard e aninhavel (gs_pipeline.h:207-240).
+gs_renderer.cpp:323-325); o otimizador e outra chamada.
 Se um buffer tiver mais de um hash distinto entre as K repeticoes, aquele
 estagio e nao-deterministico a partir de entradas identicas.
+
+POR QUE OS METODOS *_guarded (2026-10-14; caderno)
+--------------------------------------------------
+A versao de 2026-10-13 chamava compute_pixel_loss_grad e rasterize_backward
+direto. Eles NAO abrem lote de comandos no binding (python_bindings.cpp:455,
+483), e criam o timer de desempenho ANTES do DEVICE_GUARD interno
+(gs_trainer.cpp:647, gs_renderer.cpp:316). Com ENABLE_ASSERTION 0
+(config.h:6), _THROW_ERROR e no-op: o timestamp e gravado fora de lote, se
+perde, e endCommandBatch espera para sempre por ele (gs_pipeline.cpp:584-589).
+A execucao de 2026-10-13/14 travou assim no passo 1050.
+Correcao: patch SO NO BINDING, experimentos/patches/estagios_bindings.patch,
+que acrescenta as duas versoes com DeviceGuard proprio (como forward()).
+Nenhum .slang/.spv muda. Aplica-se igual em D3 e D4 (python_bindings.cpp e
+identico nos dois). O script exige: HEAD^ == tag do degrau, diff HEAD^..HEAD
+so em python_bindings.cpp e igual ao patch, e modulo recompilado com os
+metodos novos. Confere antes de treinar.
 
 CONTROLE POSITIVO, obrigatorio
 ------------------------------
@@ -50,22 +64,27 @@ LEITURA (corrigida em 2026-10-13, antes de qualquer execucao; caderno)
   nao tem poder para isso.
 
 TEMPO: cada repeticao grava o tempo total e a divisao entre chamadas
-(forward/perda/backward) e leitura+hash dos buffers. A divisao NAO separa
-GPU de CPU: nao se verificou se o DeviceGuard espera a GPU ao sair, entao
-parte do tempo de GPU pode cair na leitura (copyFromDevice espera a fence).
+(forward/perda/backward) e leitura+hash dos buffers. Cada chamada abre e
+fecha o proprio lote, e ~DeviceGuard -> endCommandBatch(true) espera a fence
+(gs_pipeline.h:47,229; gs_pipeline.cpp:558), entao o tempo de "chamadas"
+inclui a GPU. Ressalva: em train_step os tres estagios vao num lote so; aqui
+cada um e submetido e sincronizado a parte. Nao muda a aritmetica, mas muda
+a temporizacao.
 O JSON e regravado ao fim de cada ponto (campo "completo").
 
-NAO MODIFICA O FORK. Instrumenta por patch de `train_step` (a estrategia que
-funcionou nas rodadas de 2026-10-05/06).
+Instrumenta por patch de `train_step` (a estrategia que funcionou nas
+rodadas de 2026-10-05/06). O fork muda so pelo patch do binding.
 
-USO (na Ubuntu, venv ativo)
----------------------------
-    git -C ~/code/vksplatTCC checkout D4
-    python3 experimentos/testar_estagios.py --degrau D4 \\
+USO (na Ubuntu, venv ativo), uma vez por degrau
+-----------------------------------------------
+    cd ~/code/vksplatTCC
+    git checkout -b estagios-D4 D4
+    git apply ~/code/tcc/experimentos/patches/estagios_bindings.patch
+    git commit -qam "diagnostico de estagios: loss/backward com DeviceGuard (so binding)"
+    (cd vksplat && pip install -e . --no-build-isolation > ~/tcc-runs/estagios/build-D4.log 2>&1)
+    cd ~/code/tcc && python3 experimentos/testar_estagios.py --degrau D4 \\
         --fork ~/code/vksplatTCC/vksplat --out ~/tcc-runs/estagios/D4
-    git -C ~/code/vksplatTCC checkout D3
-    python3 experimentos/testar_estagios.py --degrau D3 \\
-        --fork ~/code/vksplatTCC/vksplat --out ~/tcc-runs/estagios/D3
+  e o mesmo com D3 no lugar de D4.
 """
 
 import argparse
@@ -83,11 +102,21 @@ import numpy as np
 
 SHA = {"D3": "d222c47182f5917be0cc209f19d3257e1ebad17e",   # pre-registro §3.1
        "D4": "22560858b0f23586176ea3bf03907c607d8c944f"}   # pre-registro §11.11
+PATCH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "patches", "estagios_bindings.patch")
+ARQ_PATCH = "vksplat/src/python_bindings.cpp"
+METODOS = ("compute_pixel_loss_grad_guarded", "rasterize_backward_guarded")
 PONTOS = [1050, 5050, 10050, 14050, 16050, 20050, 29950]
 K = 20
 GRUPOS = [("forward", ["pixel_state", "n_contributors"]),
           ("perda", ["v_pixel_state"]),
           ("backward", ["v_xy_vs", "v_inv_cov_vs_opacity", "v_rgb"])]
+
+
+def linhas_alteradas(diff_texto):
+    """Linhas +/- de um diff unificado, sem cabecalhos de arquivo."""
+    return [ln for ln in diff_texto.splitlines()
+            if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
 
 
 def h(module, nome):
@@ -102,11 +131,13 @@ def limite_sup_95(k):
 
 
 def repetir(module, image_idx, k=K):
-    """K repeticoes forward -> perda -> backward sobre o MESMO estado, com tempo."""
+    """K repeticoes forward -> perda -> backward sobre o MESMO estado, com tempo.
+
+    Usa so metodos que abrem o proprio lote de comandos (ver docstring do modulo)."""
     hashes = {n: [] for _, ns in GRUPOS for n in ns}
     chamadas = [module.forward,
-                lambda: module.compute_pixel_loss_grad(image_idx),
-                module.rasterize_backward]
+                lambda: module.compute_pixel_loss_grad_guarded(image_idx),
+                module.rasterize_backward_guarded]
     t_rep, t_cham, t_leit = [], [], []
     for _ in range(k):
         tc = tl = 0.0
@@ -186,24 +217,57 @@ def main() -> int:
     def git(*x):
         return subprocess.run(["git", *x], capture_output=True, text=True, cwd=fork).stdout.strip()
 
-    sha = git("rev-parse", "HEAD")
-    if sha != SHA[a.degrau]:
-        print(f"ABORTA: fork em {sha[:10] or '?'}, esperado {a.degrau} {SHA[a.degrau][:10]}. "
-              f"Rode: git -C <fork> checkout {a.degrau}", file=sys.stderr)
+    base = SHA[a.degrau]
+    sha, pai = git("rev-parse", "HEAD"), git("rev-parse", "HEAD^")
+    receita = (f"cd <repo do fork> && git checkout -b estagios-{a.degrau} {a.degrau} && "
+               f"git apply {PATCH} && git commit -qam 'diagnostico de estagios' && "
+               f"(cd vksplat && pip install -e . --no-build-isolation)")
+    if sha == base:
+        print(f"ABORTA: fork na tag {a.degrau} sem o patch do binding. Rode:\n  {receita}",
+              file=sys.stderr)
+        return 1
+    if pai != base:
+        print(f"ABORTA: HEAD^ = {pai[:10] or '?'}, esperado {a.degrau} {base[:10]}. "
+              f"O commit de diagnostico tem de ser filho direto da tag. Rode:\n  {receita}",
+              file=sys.stderr)
         return 1
     if git("status", "--porcelain", "--untracked-files=no"):
         print("ABORTA: arvore do fork suja.", file=sys.stderr)
+        return 1
+    alterados = git("diff", "--name-only", "HEAD^", "HEAD").splitlines()
+    if alterados != [ARQ_PATCH]:
+        print(f"ABORTA: o commit de diagnostico altera {alterados}; so pode alterar "
+              f"[{ARQ_PATCH!r}].", file=sys.stderr)
+        return 1
+    with open(PATCH) as f:
+        esperado = linhas_alteradas(f.read())
+    if linhas_alteradas(git("diff", "HEAD^", "HEAD", "--", f":/{ARQ_PATCH}")) != esperado:
+        print(f"ABORTA: o diff HEAD^..HEAD difere de {PATCH}.", file=sys.stderr)
         return 1
 
     import simple_trainer as st  # type: ignore[import-not-found]
     import vksplat  # type: ignore[import-not-found]
 
+    faltam = [m for m in METODOS if not hasattr(vksplat.VkSplat, m)]
+    if faltam:
+        print(f"ABORTA: o modulo carregado ({getattr(vksplat, '__file__', '?')}) nao tem "
+              f"{faltam}: nao foi recompilado depois do patch. Rode, no fork:\n"
+              f"  (cd vksplat && pip install -e . --no-build-isolation)", file=sys.stderr)
+        return 1
+
+    with open(PATCH, "rb") as f:
+        patch_sha256 = hashlib.sha256(f.read()).hexdigest()
+    so = getattr(vksplat, "__file__", "")
     destino = os.path.join(out, f"estagios_{a.degrau}.json")
     meta = {"inicio": datetime.now(timezone.utc).isoformat(),
             "proposito": "determinismo por estagio em estado fixo (forward/perda/backward)",
-            "degrau": a.degrau, "vksplat_commit": sha, "kernel": platform.release(),
+            "degrau": a.degrau, "base_commit": base, "vksplat_commit": sha,
+            "patch_binding_sha256": patch_sha256,
+            "modulo": so, "modulo_mtime": (datetime.fromtimestamp(os.path.getmtime(so), timezone.utc)
+                                           .isoformat() if so and os.path.exists(so) else None),
+            "kernel": platform.release(),
             "virtual_env": os.environ.get("VIRTUAL_ENV", ""), "pontos": pontos, "k": k,
-            "instrumentacao": "patch de metodo em VkSplat.train_step"}
+            "instrumentacao": "patch de metodo em VkSplat.train_step; estagios via *_guarded"}
     alvo = set(pontos)
     resultados, contador = [], {"chamadas": 0}
     orig = vksplat.VkSplat.train_step
