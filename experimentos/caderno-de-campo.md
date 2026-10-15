@@ -2105,6 +2105,110 @@ Eventos injetados:
 - progresso a cada 100 repetições;
 - `--progresso -1` rejeitado.
 
+## 2026-10-15 — Captura: **nenhum evento em 10.000 repetições**; caça à fonte residual encerrada; D4b com escala de cônica por faixa de passos
+
+### Resultado da captura
+
+JSON em `pivo-reprodutibilidade-3dgs/dados/estagios/estagios_D4_captura.json`, SHA-256 `f7b075ba…`, ainda não commitado. A tabela final foi colada pelo aluno.
+
+**Integridade:**
+- commit de diagnóstico `48324989…` sobre D4, patch `f44cd7c9…`;
+- módulo recompilado 0,3 s antes do início;
+- `completo: true`, K=10.000, passo 16.050;
+- de 2026-10-14T22:58Z a 2026-10-15T03:30Z, ou seja **4 h 32 min**, contra os 4 h 33 min de repetições previstos;
+- mediana de 1,536 s por repetição, máximo 1,598 s, nenhuma acima de 1,5× a mediana;
+- avaliação PSNR 27,00, SSIM 0,847, LPIPS-Alex 0,100.
+
+**Resultado:** nos 6 buffers, 1 hash em 10.000 repetições, **zero divergências da referência e zero eventos capturados**. Limite superior de 95% da taxa por repetição neste estado: **3,0·10⁻⁴**.
+
+**O evento da fase 2 (`v_rgb`, 1 em 3.406, trajetória A) fica sem caracterização.** Não se sabe se foi cálculo ou leitura.
+
+Somando todas as execuções em D4, é 1 evento em 16.952 repetições de estágio (140 + 3.406 + 3.406 + 10.000), com IC 95% de Poisson ≈ [1,5·10⁻⁶ ; 3,3·10⁻⁴]. **É descritivo:** a soma supõe a mesma taxa em estados diferentes, o que não foi fixado.
+
+### Observação que exige escrutínio, sem interpretação
+
+Número final de gaussianas nas três execuções do teste de estágios em D4:
+
+| execução | repetições antes do passo 15.000 | N final |
+|---|---|---|
+| fase 1 | sim (1.050, 5.050, 10.050, 14.050) | 5.940.143, o valor modal da série |
+| fase 2 | não | **5.940.699** |
+| captura | não | **5.940.524** |
+| série D4, 10 execuções | — | 5.940.141 a 5.940.245 |
+
+As duas execuções sem repetições antes do fim da densificação ficaram acima do máximo da série. Por permutabilidade, uma execução nova cai fora da faixa de 10 com probabilidade ~2/11. Duas seguidas, as duas acima, têm probabilidade de ~3%. **Pode ser acaso.**
+
+Há também uma **lacuna minha**: o `testar_estagios.py` **não grava `ambiente.json`** (Mesa, libc, boot), ao contrário de `run_degree.sh`. Por isso não posso excluir uma mudança de ambiente entre a série e estas execuções. Todo script de execução daqui em diante grava o ambiente.
+
+### Decisão do aluno: encerrar a caça à fonte residual
+
+Afirmação que vai para o texto, com a força declarada:
+- **a acumulação em `float` é a fonte dominante.** Em estado fixo, o backward de D3 deu um gradiente diferente em 140 de 140 repetições, enquanto forward e perda foram idênticos;
+- **em D4 resta uma fonte rara, não identificada:** 1 evento em ~1,7·10⁴ repetições de estágio, sem separar cálculo de leitura. Nas trajetórias, a divergência de D4 continua aparecendo só depois do passo ~13.500;
+- **por inferência, e não demonstrado:** a fonte residual não é a não-associatividade, porque em D4 a soma é inteira.
+
+### D4b: decisões do aluno, e um erro meu corrigido antes de qualquer texto
+
+- **Escala de cônica por faixa de passos**, opção (b). As outras eram (a) escala fixa pelo regime e (c) escala fixa intermediária.
+- **Erro meu, na pergunta ao aluno:** sugeri como exemplo "`s=18` antes do passo 1.000 e `s≈27` depois". **Os dados de `dados/gradientes/` desmentem isso.**
+  - O máximo do gradiente acumulado de cônica, maior das 3 repetições, continua alto entre os passos 1.000 e 3.000:
+    - `conic_0`: 87,5 / 91,6 / 257;
+    - `conic_1`: 38,2 / 130 / 133;
+    - `conic_2`: 27 / 48,3 / 70,3.
+  - Ele só cai a partir do passo 5.000: no máximo 3,76 (`conic_0`, passo 25.000), 1,39 e 0,866.
+  - Com `s=27`, o acumulador comporta até 16 e estouraria no passo 3.000.
+  - A regra `floor(log2(2³⁰/máx))` dá `s` = 21, 22 e 23 para a faixa de 500 a 5.000, e 28, 29 e 30 a partir de 5.000.
+- **Lacuna dos dados:** as 16 amostras não incluem nenhum dos resets de opacidade dos passos 6.000, 9.000 e 12.000, nem passos logo depois deles. O passo 3.000, que é reset, tem o maior máximo da fase intermediária. **Fixar os cortes com estes dados seria fixá-los no escuro.**
+- **Conferido no código:** os máximos dos passos de densificação são válidos para a cônica. O pós-backward lê e escreve `v_xy_vs`, mas não toca `v_inv_cov_vs_opacity` (`gs_trainer.cpp:806-818` em D4). `v_xy_vs` pode ter sido alterado nesses passos, o que não afeta o D4b.
+- **Conferido no código, para a implementação:**
+  - o produtor recebe `uniforms.step = S` (`utils.slang:761`; `python_bindings.cpp:536`);
+  - o otimizador recebe **`S+1`** (`python_bindings.cpp:476`, `gs_trainer.cpp:703`);
+  - uma escala por passo tem de usar `step` no produtor e `step − 1` no otimizador, por uma única função compartilhada;
+  - **D4b continua sem mudança no C++.**
+- **Decisão do aluno: medir antes de fixar o §11.12.** Medição densa do gradiente de cônica em D3, com custo medido antes.
+- **Decisão do aluno: manter o plano completo**, com todas as iterações antes de escrever. Meu alerta, registrado uma vez: o congelamento passa de ~20/out, e a escrita começa depois, sobre uma janela menor que 17 dias.
+
+### Medição densa preparada: `experimentos/medir_conica_d4b.py`
+
+**O que mede.** Depois de cada `train_step` amostrado, em D3, o script lê `v_inv_cov_vs_opacity` (N × 4: `conic_0`, `conic_1`, `conic_2`, `opacity`). Por componente, grava:
+- `max_abs` e `min_abs` não nulo, **exatos**;
+- contagens de zeros, NaN e Inf;
+- **histograma de expoente base 2** (`np.frexp`), `hist_exp2[e]` = número de valores com |g| em [2^(e−1), 2^e).
+
+O histograma permite avaliar **qualquer** escala `s` depois: quantos valores viram zero, |g| < 2^−(s+1), e quantos estouram o acumulador, |g| ≥ 2^(31−s), com resolução de fator 2. Mede-se o **acumulado** por gaussiana, como em `dados/gradientes/` e na regra do §11.2. Termos individuais não são medidos, a mesma limitação do §11.9.
+
+Escolhi o histograma em vez de percentis: os percentis exigiriam ordenação parcial de ~6 M valores por componente a cada amostra, e não permitiriam reavaliar escalas depois.
+
+**Amostragem, fixada:** **3.316 amostras por repetição**:
+- passos 0 a 99, todos;
+- um a cada 10 até o fim;
+- todos os passos de R a R+50, para R = 3.000, 6.000, 9.000 e 12.000;
+- todos os passos de 15.000 a 15.050;
+- o passo 29.999.
+
+O reset de opacidade roda no pós-backward dos passos múltiplos de 3.000 (`gs_trainer.cpp:1027` em D3), e só antes de `refine_stop_iter` = 15.000 por causa do retorno em `:802`. Portanto os resets são 3.000, 6.000, 9.000 e 12.000, e o primeiro gradiente afetado é o de R+1.
+
+**Proteções:**
+- exige a tag D3 e a árvore limpa;
+- **aborta se o módulo carregado tiver os métodos `*_guarded`**: isso indica que ele foi compilado numa branch `estagios-*` e não em D3. É o detector de binário velho que faltava, porque o `checkout` não troca o `.so`;
+- não sobrescreve dados;
+- NDJSON gravado e descarregado a cada amostra, e o meta com `completo`;
+- **`ambiente.json` no início e no fim**, com os mesmos pacotes de `run_degree.sh:56-65`. Aviso impresso se `boot_id` ou pacotes mudarem durante a execução.
+
+**Modo `--custo`:** treina até o passo 10.500 e amostra 50 passos de 10.010 a 10.500 (N ≈ 5,2 M). Imprime a mediana por amostra e a projeção para o cronograma completo, como cota superior. **O prazo só é estimado depois desta medição.**
+
+**Testes no Mac:**
+- redução contra força bruta (`math.frexp`), com 5.012 valores: denormais, negativos, ±0, NaN, Inf e valor perto do máximo de `float32`. **Todas as verificações passam**;
+- buffer vazio, só zeros, só NaN e coluna não contígua, esta igual à versão contígua;
+- ponta a ponta com fork falso: 3.316 linhas e `completo: true`, buffer vazio no passo 3.001 sem erro, NaN e Inf contados na componente certa, pico injetado de 257 no passo 3.005 caindo no bloco pós-reset [3000, 3051) do resumo;
+- abortos: arquivo já existe (1), treino interrompido no passo 5.000 (2, com 635 linhas preservadas e `completo: false`), módulo com o patch de estágios (1), SHA errado (1), árvore suja (1), `--rep -1` rejeitado.
+
+**Dois erros apareceram nos testes:**
+- **do script:** o modo de custo amostrava até o passo 10.500, mas treinava com `train_steps` = 10.500, cujo último passo é o 10.499. Daria 49 amostras e o aborto 2. Corrigido para `train_steps` = 10.501;
+- **do teste, não do script:** o dado de teste tinha 3,5·10³⁸, acima do máximo de `float32`, o que gerou um Inf a mais. Os outros "erros" eram filtros do próprio teste.
+
+**Custo de disco a declarar:** cada execução grava o `splat.ply` do treino, ~1,4 GB, em `<out>/treino_*`. Não é dado de pesquisa. O mesmo vale para os `treino/` do teste de estágios em `~/tcc-runs/estagios/`.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -2128,15 +2232,30 @@ O restante desta seção foi escrito em 2026-09-25 e está **superado nos pontos
 - **D4:** nenhuma variação em 140 repetições;
 - controle positivo aprovado.
 
-**Próximo passo: fase 2**, em D4, nos passos 16.050 e 29.950, com **K=3406**, calculado pela regra fixada. Custo estimado de ~3 h 20 min. Histórico do teste: leitura corrigida em 2026-10-13; primeira tentativa travada por erro meu de API e corrigida pelo patch de binding `experimentos/patches/estagios_bindings.patch` (entradas de 2026-10-13 e 2026-10-14).
+**Fase 2 (2026-10-14) e captura (2026-10-15) feitas:**
+- fase 2: 1 evento em `v_rgb` em 3.406 repetições no passo 16.050, e zero no 29.950;
+- captura: zero eventos em 10.000 no passo 16.050, numa trajetória nova;
+- o evento fica sem caracterização;
+- **caça à fonte residual encerrada** por decisão do aluno. A afirmação para o texto está na entrada de 2026-10-15.
 
-**Plano restante, decidido pelo aluno: todas as iterações antes de escrever.** Data de congelamento sugerida, 16/out, e não confirmada. Itens, em ordem:
+**Em andamento: D4b.** A escala de cônica será por faixa de passos. Antes do adendo §11.12 vem a **medição densa do gradiente de cônica em D3**, com custo medido antes. Ver a entrada de 2026-10-15, que corrige um exemplo meu errado.
+
+**Plano restante, decidido pelo aluno e reconfirmado em 2026-10-15: todas as iterações antes de escrever.** O congelamento passa de ~20/out. Itens, em ordem:
+1. ~~teste de estágios~~ **feito**;
+2. **D4b:** medição densa → adendo §11.12 commitado → implementação e V1–V5 → série N=10 → análise;
+3. diagnóstico de `.ply` em D3, com os arquivos no HD externo;
+4. H4, comparação com os valores publicados do VkSplat;
+5. H3b, executar ou declarar não executada;
+6. cópia em nuvem dos `.ply`.
+
+<!-- plano anterior, de 2026-10-05, mantido como registro:
 1. teste de estágios;
 2. diagnóstico de `.ply` em D3, com os arquivos no HD externo;
 3. **D4b**, com escala da cônica dimensionada pelo regime, que exige o adendo §11.12 **antes** de rodar;
 4. H4, comparação com os valores publicados do VkSplat;
 5. H3b, executar ou declarar não executada;
 6. cópia em nuvem dos `.ply`.
+-->
 
 **Infraestrutura nova:**
 - os `.ply` de D0–D3 estão no HD externo `/media/fabio/Seagate Expansion Drive/tcc-runs-arquivo/` (NTFS), em cópia única, verificada por hash;
