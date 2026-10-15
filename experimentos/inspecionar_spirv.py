@@ -104,6 +104,37 @@ def strings_de(palavras, inicio, fim):
     return bs.split(b"\x00")[0].decode("utf-8", "replace")
 
 
+OP_TYPE_FLOAT, OP_CONSTANT = 22, 43   # SPIR-V unificada: OpTypeFloat, OpConstant
+
+
+def constantes_float32(palavras):
+    """Multiconjunto {valor: ocorrencias} das OpConstant de tipo float de 32 bits.
+
+    Acrescentado em 2026-10-15 para a verificacao V5 do §11.12 (D4b): as escalas
+    de ponto fixo aparecem no modulo como constantes. OpTypeFloat:
+    [wc|22, id, largura, ...]; OpConstant: [wc|43, tipo, id, valor...]. Um tipo
+    float pode ser declarado mais de uma vez; todos os ids de largura 32 contam.
+    """
+    tipos32 = set()
+    i = 5
+    while i < len(palavras):
+        wc, op = palavras[i] >> 16, palavras[i] & 0xFFFF
+        if wc == 0:
+            raise ValueError(f"wordCount=0 na palavra {i}; modulo corrompido")
+        if op == OP_TYPE_FLOAT and wc >= 3 and palavras[i + 2] == 32:
+            tipos32.add(palavras[i + 1])
+        i += wc
+    valores = {}
+    i = 5
+    while i < len(palavras):
+        wc, op = palavras[i] >> 16, palavras[i] & 0xFFFF
+        if op == OP_CONSTANT and wc == 4 and palavras[i + 1] in tipos32:
+            v = struct.unpack("<f", struct.pack("<I", palavras[i + 3]))[0]
+            valores[v] = valores.get(v, 0) + 1
+        i += wc
+    return valores
+
+
 def inspecionar(caminho):
     palavras, ordem = ler_palavras(caminho)
     versao = palavras[1]

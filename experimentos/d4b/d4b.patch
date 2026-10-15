@@ -1,0 +1,83 @@
+--- a/vksplat/slang/d4_fixed_point.slang
++++ b/vksplat/slang/d4_fixed_point.slang
+@@ -1,5 +1,8 @@
+ // d4_fixed_point.slang -- degrau D4 do TCC (reprodutibilidade em treino de 3DGS)
+ //
++// D4b (§11.12, 2026-10-15): so a conica muda -- escala 2^30 e limite por termo
++// +-(2^18 - 1). Ver d4b_quantizar_conica abaixo.
++//
+ // Acumulacao em PONTO FIXO dos 9 gradientes do backward per-splat. Substitui a
+ // adicao atomica em float32 (nao associativa) por adicao atomica inteira de 32
+ // bits (OpAtomicIAdd), que e modular 2^32 e portanto associativa e comutativa:
+@@ -22,9 +25,9 @@
+ 
+ static const float D4_ESC_XY_X     = 17592186044416.0;  // 2^44
+ static const float D4_ESC_XY_Y     = 17592186044416.0;  // 2^44
+-static const float D4_ESC_CONIC_0  = 262144.0;  // 2^18
+-static const float D4_ESC_CONIC_1  = 262144.0;  // 2^18
+-static const float D4_ESC_CONIC_2  = 1048576.0;  // 2^20
++static const float D4_ESC_CONIC_0  = 1073741824.0;  // 2^30  (D4b, §11.12; era 2^18 em D4)
++static const float D4_ESC_CONIC_1  = 1073741824.0;  // 2^30  (D4b, §11.12; era 2^18 em D4)
++static const float D4_ESC_CONIC_2  = 1073741824.0;  // 2^30  (D4b, §11.12; era 2^20 em D4)
+ static const float D4_ESC_OPACITY  = 17179869184.0;  // 2^34
+ static const float D4_ESC_RGB_R    = 137438953472.0;  // 2^37
+ static const float D4_ESC_RGB_G    = 137438953472.0;  // 2^37
+@@ -32,9 +35,9 @@
+ 
+ static const float D4_INV_XY_X     = 5.684341886080802e-14;  // 2^-44
+ static const float D4_INV_XY_Y     = 5.684341886080802e-14;  // 2^-44
+-static const float D4_INV_CONIC_0  = 3.814697265625e-06;  // 2^-18
+-static const float D4_INV_CONIC_1  = 3.814697265625e-06;  // 2^-18
+-static const float D4_INV_CONIC_2  = 9.5367431640625e-07;  // 2^-20
++static const float D4_INV_CONIC_0  = 9.313225746154785e-10;  // 2^-30  (D4b; era 2^-18)
++static const float D4_INV_CONIC_1  = 9.313225746154785e-10;  // 2^-30  (D4b; era 2^-18)
++static const float D4_INV_CONIC_2  = 9.313225746154785e-10;  // 2^-30  (D4b; era 2^-20)
+ static const float D4_INV_OPACITY  = 5.820766091346741e-11;  // 2^-34
+ static const float D4_INV_RGB_R    = 7.275957614183426e-12;  // 2^-37
+ static const float D4_INV_RGB_G    = 7.275957614183426e-12;  // 2^-37
+@@ -54,6 +57,22 @@
+     return int(round(clamp(v * escala, -D4_LIM, D4_LIM)));
+ }
+ 
++// D4b (pre-registro.md §11.12): limite POR TERMO da conica, Lc = 2^18 - 1, exato
++// em float32. O backward per-splat soma exatamente UM termo por tile tocado
++// (PIXEL_BATCH_SIZE = TILE_SIZE; cada gaussiana do tile e tratada uma vez), e o
++// numero de tiles da grade e <= 2^13 (verificacao V0): |acumulado| <= 2^13 *
++// (2^18 - 1) = 2147475456 < 2^31 - 1. O acumulador da conica NUNCA estoura.
++// NAO usar D4_LIM / 2^13 = 262143.984375: round() o leva a 262144, e
++// 2^13 * 262144 = 2^31 estouraria. clamp POR TERMO e funcao pura do termo e
++// preserva a associatividade; continua PROIBIDO saturar o acumulador.
++// Opacidade, xy e rgb continuam com d4_quantizar e D4_LIM, como em D4.
++static const float D4B_LIM_CONICA = 262143.0;
++
++int d4b_quantizar_conica(float v, float escala)
++{
++    return int(round(clamp(v * escala, -D4B_LIM_CONICA, D4B_LIM_CONICA)));
++}
++
+ float2 d4_desq_xy(int2 q)
+ {
+     return float2(float(q.x) * D4_INV_XY_X, float(q.y) * D4_INV_XY_Y);
+--- a/vksplat/slang/alphablend_shader_bwd_per_splat.slang
++++ b/vksplat/slang/alphablend_shader_bwd_per_splat.slang
+@@ -197,12 +197,17 @@
+         #define _ATOMIC_ADD_FIXED(buffer, address, value, ESCALA) \
+             { int d4_q = d4_quantizar(value, ESCALA); \
+               if (d4_q != 0) buffer.InterlockedAdd((address)*sizeof(float), asuint(d4_q)); }
++        // D4b (§11.12): os 3 sitios de conica usam escala 2^30 com limite por termo
++        // +-(2^18 - 1) (d4b_quantizar_conica); os outros 6 seguem como em D4.
++        #define _ATOMIC_ADD_CONICA(buffer, address, value, ESCALA) \
++            { int d4_q = d4b_quantizar_conica(value, ESCALA); \
++              if (d4_q != 0) buffer.InterlockedAdd((address)*sizeof(float), asuint(d4_q)); }
+         if (active) {
+             _ATOMIC_ADD_FIXED(out_v_xy_vs, 2*splat_id+0, v_xy_vs.x, D4_ESC_XY_X);
+             _ATOMIC_ADD_FIXED(out_v_xy_vs, 2*splat_id+1, v_xy_vs.y, D4_ESC_XY_Y);
+-            _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+0, v_inv_cov_vs_opacity.x, D4_ESC_CONIC_0);
+-            _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+1, v_inv_cov_vs_opacity.y, D4_ESC_CONIC_1);
+-            _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+2, v_inv_cov_vs_opacity.z, D4_ESC_CONIC_2);
++            _ATOMIC_ADD_CONICA(out_v_inv_cov_vs_opacity, 4*splat_id+0, v_inv_cov_vs_opacity.x, D4_ESC_CONIC_0);
++            _ATOMIC_ADD_CONICA(out_v_inv_cov_vs_opacity, 4*splat_id+1, v_inv_cov_vs_opacity.y, D4_ESC_CONIC_1);
++            _ATOMIC_ADD_CONICA(out_v_inv_cov_vs_opacity, 4*splat_id+2, v_inv_cov_vs_opacity.z, D4_ESC_CONIC_2);
+             _ATOMIC_ADD_FIXED(out_v_inv_cov_vs_opacity, 4*splat_id+3, v_inv_cov_vs_opacity.w, D4_ESC_OPACITY);
+             _ATOMIC_ADD_FIXED(out_v_rgb, 3*splat_id+0, float(v_rgb.x), D4_ESC_RGB_R);
+             _ATOMIC_ADD_FIXED(out_v_rgb, 3*splat_id+1, float(v_rgb.y), D4_ESC_RGB_G);

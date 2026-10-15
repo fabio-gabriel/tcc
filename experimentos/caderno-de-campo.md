@@ -2340,6 +2340,66 @@ O adendo contém:
 
 **Ele só vale quando commitado, e tem de ser commitado antes da série.** Falta a revisão do aluno.
 
+## 2026-10-15 — §11.12 **vinculante** (`5a3b4a7`); V0 aprovada; patch de D4b e verificador prontos
+
+### Vinculação
+
+O §11.12 foi commitado pelo aluno em **`5a3b4a7`**, em 2026-10-15T19:34:22−03:00, e está no remoto. A mensagem do commit é "apresentacao v2", porque ele junta o adendo, os dados de `dados/conica/`, o `analisar_conica_d4b.py`, o caderno e arquivos da apresentação. O conteúdo do adendo é verificável por `git show 5a3b4a7 -- pivo-reprodutibilidade-3dgs/pre-registro.md`. Nenhuma execução de D4b aconteceu antes desse commit.
+
+### V0
+
+Saída literal na Ubuntu: a primeira imagem, em ordem alfabética, de `garden/images_4` tem `(1297, 840)`. Daí ⌈1297/16⌉ × ⌈840/16⌉ = 82 × 53 = **4.346 tiles ≤ 8.192**. A inferência anterior se confirma. **Ressalva:** só uma imagem foi lida. A conferência de todas fica para a entrada do SHA.
+
+### Patch: `experimentos/d4b/d4b.patch`
+
+Gerado a partir das fontes de D4, numa cópia extraída por `git archive`. A árvore do clone no Mac, que tem o rascunho de D4 sem commit, não foi tocada.
+
+- **`d4_fixed_point.slang`:**
+  - `D4_ESC_CONIC_{0,1,2}` passam a 1073741824,0 (2³⁰);
+  - `D4_INV_CONIC_{0,1,2}` passam a 9,313225746154785e−10 (2⁻³⁰);
+  - novos `D4B_LIM_CONICA` = 262143,0 e `d4b_quantizar_conica`;
+  - comentário com a garantia e com o motivo para não usar L/2¹³;
+  - `xy`, opacidade, `rgb`, `D4_LIM` e `d4_quantizar` **intocados**.
+- **`alphablend_shader_bwd_per_splat.slang`:** novo macro `_ATOMIC_ADD_CONICA`, usado **só** nos 3 sítios de cônica. Os outros 6 seguem com `_ATOMIC_ADD_FIXED`.
+
+**Conferido:**
+- os três literais leem **exatamente** como 2³⁰, 2⁻³⁰ e 262.143 em `float32`;
+- o patch aplica limpo sobre D4;
+- a árvore resultante difere de D4 **só** nos 2 `.slang`;
+- 1 definição de macro e 3 usos.
+
+### Extrator de constantes, para V5: `constantes_float32` em `inspecionar_spirv.py`
+
+Função acrescentada, sem mudar o comportamento existente. **Validada nos `.spv` versionados**, onde sei o que tem de aparecer:
+- `rasterize_backward_1`: D3 tem 6 constantes e nenhuma das escalas; D4 tem 14, entre elas 2¹⁸, 2²⁰, ±L, 2³⁴, 2⁴⁴, 2³⁷ e 2³⁸;
+- `fused_projection_backward_optimizer`: D3 sem escalas; D4 com 2⁻¹⁸, 2⁻²⁰, 2⁻³⁴ e 2⁻⁴⁴;
+- `default_update_state`: só 2⁻⁴⁴ em D4.
+
+**Nenhuma dessas constantes existe em D3**, então o critério da V5 é inequívoco.
+
+### Verificador: `experimentos/compilar_d4b.py`
+
+Derivado de `compilar_d4.py`, com a mesma função de perfil e o mesmo comando de compilação. O que ele faz:
+- recusa rodar se a árvore não for "D4 + os 2 `.slang`";
+- compila os 16 jobs dos 3 grupos;
+- V2: alterados contra D4 = exatamente os 2 `.slang` e os 2 `.spv`, com `default_update_state` **bit-idêntico**;
+- V3: `OpAtomicIAdd` ×9, `OpAtomicFAddEXT` ×0, sem a extensão, e `Round`, `FClamp` e `OpConvertFToS` com a **mesma** contagem de D4;
+- V4: otimizador com atômicos e `OpConvertSToF` iguais aos de D4;
+- V5: as constantes, como no §11.12.5;
+- grava as constantes de D4 e de D4b no relatório.
+
+**Testes no Mac:** o fork falso é o D4 extraído, com tag `D4`, e o `compile_shaders.py` real gerou os 16 jobs. O `slangc` falso devolve os `.spv` reais de D4, alterando só as `OpConstant` conforme o modo.
+- Caminho feliz: V2–V5 OK, "PRONTO PARA COMMIT DE D4b", saída 0.
+- **Recusas corretas:**
+  - compilador que não muda nada: V2 e V5 falham;
+  - troca parcial: V5 acusa o 2²⁰ que sobrou;
+  - `default_update_state` alterado: V2;
+  - aviso do compilador;
+  - falha de compilação;
+  - sem o patch, com arquivo a mais na árvore, ou com `LD_LIBRARY_PATH` definido: aborto 1.
+
+**O que os testes não cobrem:** o `slangc` real. Só a Ubuntu diz se o compilador emite as constantes como previsto, se o `default_update_state` sai idêntico e se a contagem de `FClamp` se mantém.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
