@@ -2209,6 +2209,137 @@ O reset de opacidade roda no pós-backward dos passos múltiplos de 3.000 (`gs_t
 
 **Custo de disco a declarar:** cada execução grava o `splat.ply` do treino, ~1,4 GB, em `<out>/treino_*`. Não é dado de pesquisa. O mesmo vale para os `treino/` do teste de estágios em `~/tcc-runs/estagios/`.
 
+### Custo medido, e um achado: **a amostragem esparsa subestimou o máximo do regime em ~2 ordens de grandeza**
+
+Execução `--custo` em D3, saída literal colada pelo aluno:
+- `custo: 50 amostras, mediana 0.520 s/amostra`;
+- projeção para o cronograma completo (3.316 amostras): `<= 29 min de amostragem por repeticao, mais o treino`;
+- avaliação do modelo truncado no passo 10.500: PSNR 26,42, SSIM 0,839, LPIPS-Alex 0,106. É compatível com treino incompleto, e não é dado do D4b.
+
+**Estimativa a partir do custo medido:** ~29 min de amostragem, mais ~16 min de treino, mais ~2 min de avaliação e `.ply`, o que dá **~47 min por repetição** e **~2 h 20 min** para as 3 em sequência. A cota é superior, porque as amostras do início têm N menor.
+
+**Achado.** Máximo do gradiente acumulado nos passos 10.010 a 10.500, numa única execução e 50 amostras: **`conic_0` = 35,3, `conic_1` = 51,6, `conic_2` = 20,9**, e opacidade 0,00203. Nas 16 amostras esparsas de `dados/gradientes/`, os passos 10.000 e 12.500 tinham dado 0,09 a 0,87 (o maior das 3 repetições).
+
+- **O "máximo de 3,76 a partir do passo 5.000", registrado mais acima nesta entrada, é artefato da amostragem esparsa.** Uma escala `s≈28`, com capacidade 8, teria estourado com frequência no regime.
+- **Isto confirma que a decisão de medir antes de fixar o §11.12 era necessária.** Com os dados antigos, o D4b teria sido desenhado errado pela segunda vez, pelo mesmo mecanismo do erro de D4: uma estatística agregada sem olhar a estrutura temporal.
+- **Escrutínio:**
+  - é uma execução e 50 amostras;
+  - a janela inclui passos de densificação, mas a densificação não toca este buffer, como verificado no código;
+  - **o padrão sugere picos raros**, porque o máximo por passo varia em ordens de grandeza entre passos próximos. Se for isso, nem a amostragem a cada 10 passos captura o máximo verdadeiro. A regra do adendo terá de usar a **cauda do histograma** (quantas gaussianas excedem cada capacidade, por passo) e não só o máximo.
+
+**Alternativa de desenho que o achado abre, não decidida:** `clamp` **por termo** em ±L/2ᵏ, em vez de ±L.
+- Continua função pura do termo, e preserva a associatividade (D-4).
+- Garante que o acumulador **nunca** estoura para gaussianas que tocam até 2ᵏ tiles, porque o per-splat soma um termo por tile.
+- O preço é saturar termos grandes.
+- Fica para o adendo, decidido com os dados das 3 repetições.
+
+## 2026-10-15 — Medição densa da cônica em D3: **faixa dinâmica de mais de 40 bits; D4 zerou 90–98% do gradiente de cônica e estourou o acumulador**
+
+### Dados e integridade
+
+Em `pivo-reprodutibilidade-3dgs/dados/conica/`, ainda não commitados:
+- `conica_rep0{0,1,2}.ndjson.gz`, comprimidos com `gzip -9 -n`;
+- os `_meta.json`.
+
+SHA-256 dos NDJSON **descomprimidos**, conferidos depois de descomprimir: rep00 `582ef2c5…`, rep01 `01d1088e…`, rep02 `d50f92d2…`.
+
+**Integridade das 3 repetições:**
+- `completo: true`, 3.316 de 3.316 amostras e 30.000 chamadas de `train_step`, no commit D3;
+- módulo recompilado às 10:24Z, antes de todas;
+- `boot_id` `d6ccf370` constante do início ao fim;
+- **pacotes idênticos aos da série D4** (Mesa 25.2.8, libc 2.39-0ubuntu8.9, Python 0.17), com o RADV na RX 9070 XT;
+- 0 NaN e 0 Inf;
+- logs sem erro;
+- duração de 43 a 44 min cada, contra ~47 min estimados pelo custo.
+
+O boot é outro, não o da série D4 (`8d0e782c`); kernel e pacotes coincidem.
+
+### Resultado 1: a faixa dinâmica do gradiente acumulado de cônica passa de 40 bits
+
+- Valores não nulos de |g| no regime, passos 5.000 a 30.000, quantis 10/50/90/99%: **~2⁻³⁵, 2⁻²⁸, 2⁻²² e 2⁻¹⁷**.
+- Máximo por passo, com picos: até **7,7·10⁶** entre 1.000 e 2.000, e **2,3·10⁶** entre 20.000 e 30.000, ou seja ~2²³. A mediana dos máximos por passo no regime fica em 0,1–2. Os picos são raros e esparsos.
+- **As 16 amostras de `dados/gradientes/` davam máximo de 3,7·10³.** Subestimaram o máximo em ~3 ordens de grandeza.
+- Os valores grandes são plausíveis fisicamente, não lixo: ∂α/∂cônica é proporcional a Δx², e gaussianas que cobrem muitos pixels dão Δx² ~ 10⁶ px². É explicação, não verificação.
+
+### Resultado 2: o que isto diz sobre D4, que é **limitação a declarar** e não afeta H3.4
+
+Calculado pelos histogramas, sobre o acumulado por gaussiana. Sendo `s` a escala, um valor vira zero se |g| < 2^−(s+1) e estoura se |g| ≥ 2^(31−s).
+
+| faixa de passos | fração zerada com `s=18` (D4) | passos com ≥1 estouro com `s=18` |
+|---|---|---|
+| 0–1.000 | 0,58 | 0,08 |
+| 1.000–3.050 | 0,90 | 0,11 |
+| 3.051–5.000 | 0,95 | ~0 |
+| 5.000–15.050 | 0,97 | ~0 |
+| 15.050–30.000 | 0,98 | 0,01–0,02 |
+
+Valores de `conic_0`. `conic_1` e `conic_2` são semelhantes, ver os JSON. Daí:
+- **D4 zerou de 90 a 98% dos gradientes de cônica não nulos a partir do passo 1.000.** Isso quantifica a hipótese de 2026-10-01, que passa de "provável" a medida, sobre trajetórias de D3;
+- **D4 também estourou o acumulador**, em pelo menos uma gaussiana, em ~6–11% dos passos entre 0 e 3.050. O estouro é wraparound (§11.3) e devolve gradiente com valor e sinal arbitrários. A "folga de 2,1× a 2,8×" do §11.2 estava errada, porque saiu de 16 amostras;
+- **a opacidade também estourou em D4:** o máximo denso é 0,288, contra capacidade de 0,125 com `s=34` (6,4× o máximo esparso). Isso ocorreu em 18 de 9.948 passos amostrados, a maioria entre 100 e 3.050, incluindo o 3.001, logo depois do reset;
+- **`xy` e `rgb` não foram medidos densamente.** Não se sabe se estouraram;
+- **nada disto afeta H3.4**, porque a soma modular continua associativa. **Afeta a qualidade de D4, e a afirmação de que D4 é uma intervenção limpa.** É a terceira vez neste projeto que uma estatística sem estrutura temporal produz uma conclusão errada (2026-09-23, 2026-10-01, e esta).
+
+**Leitura, como inferência:** o Adam normaliza cada parâmetro por √v. Um gradiente pequeno, mas não nulo, ainda move o parâmetro; um gradiente zerado sempre não move. Por isso o que importa é a **fração zerada por contagem**, e não por massa. É coerente com o diagnóstico de 2026-10-05, em que só ~24% das gaussianas tinham escala ou rotação diferentes entre execuções de D4. É coerente, não demonstrado.
+
+### Resultado 3: nenhuma escala de 32 bits resolve, e a premissa da opção (b) mudou
+
+- Com escala fixa e sem `clamp` adicional, subir `s` troca zeros por estouros. Com `s=28`, a fração zerada no regime ainda é de 35–40%, e há estouro em 5–29% dos passos. **Faixas de passos não resolvem**, porque os picos aparecem em todas as fases, inclusive entre 20.000 e 30.000.
+- **`clamp` por termo em ±L/2¹³ elimina o estouro por construção.**
+  - O K máximo medido é 4.346 tiles, menor que 2¹³. O per-splat soma um termo por tile, como conferido no código mais tarde nesta mesma data. *(Correção, no mesmo dia: a primeira redação dizia "exatamente a grade inteira de 82 × 53". **É inferência**, a partir de 4.346 = 82 × 53 e da resolução presumida de `images_4`, que não foi lida. Vira a verificação V0 do §11.12.)*
+  - É função pura do termo e preserva a associatividade (D-4).
+  - Com ele, `s` passa a regular só a troca entre zerar e saturar.
+  - Proxy de saturação: fração de valores **acumulados** ≥ 2^(18−s). Os termos individuais não foram medidos, então o proxy não é uma cota exata.
+
+  | `conic_0` | zerada (0–3.050 / 3.051–15.050 / 15.051–30.000) | saturada, proxy (mesmas faixas) |
+  |---|---|---|
+  | `s=28` | 0,19 / 0,35 / 0,38 | 1,5·10⁻³ / 3,1·10⁻⁴ / 2,3·10⁻⁴ |
+  | `s=30` | 0,12 / 0,21 / 0,24 | 5,3·10⁻³ / 1,0·10⁻³ / 6,7·10⁻⁴ |
+  | `s=31` | 0,09 / 0,16 / 0,19 | 9,7·10⁻³ / 1,7·10⁻³ / 1,1·10⁻³ |
+
+- **Por inferência:** sob o Adam, saturar é próximo de um *clipping* de gradiente, que costuma ser benigno, e zerar congela o parâmetro. Isto favorece `s` alto com `clamp`.
+- **Consequência para a decisão do aluno:** a opção (b), escala por faixa, foi escolhida para evitar estouro do acumulador. **Com o `clamp` em L/2¹³ o estouro deixa de depender da escala**, e as faixas trazem pouco: só um pouco menos de saturação no início. Elas também acrescentam o acoplamento produtor/otimizador (`step` contra `step − 1`). **A decisão precisa ser revista com o aluno antes do adendo.**
+- **Para o texto, é um achado em si:** acumulação determinística em ponto fixo de 32 bits **não representa** a faixa dinâmica do gradiente de cônica do 3DGS. Ela força uma troca de qualidade (zerar, saturar ou estourar), e não é uma substituição neutra do `float`.
+
+### Decisões do aluno sobre o D4b, revistas com os dados densos
+
+As opções foram apresentadas com as tabelas de fração zerada e saturada à vista. Escolhas do aluno:
+1. **Escala única + `clamp` por termo em ±L/2¹³**, em vez de faixas de passos. A opção (b), escolhida antes dos dados densos, foi substituída, porque o motivo dela, evitar estouro, deixou de depender da escala;
+2. **`clamp` só nos 3 componentes de cônica.** Opacidade, `xy` e `rgb` ficam como em D4, e a comparação D4 × D4b isola a cônica. A alternativa, nos 9 componentes, custaria 13 bits de capacidade a componentes sem medição densa;
+3. **Regra para `s`:** o maior `s` com proxy de saturação ≤ 10⁻³ no regime.
+
+**Resultado da regra, por `experimentos/analisar_conica_d4b.py`:** **`s=30` nos três componentes**:
+- regime de 3.051 a 30.000: saturação de 6,4 a 8,2·10⁻⁴, contra 1,1 a 1,4·10⁻³ com `s=31`; fração zerada de 0,22 a 0,24;
+- o mesmo `s` com o regime de 5.000 a 30.000, e em cada repetição isolada.
+
+Confirmado no código de D4 antes de redigir: **um termo atômico por par (gaussiana, tile)**.
+- O laço de lotes de pixels roda uma vez, porque `PIXEL_BATCH_SIZE = TILE_SIZE` (`alphablend_shader_bwd_per_splat.slang:12, 87`).
+- Cada gaussiana do tile é tratada uma única vez entre as rodadas (`:89-97`).
+- Os atômicos estão em `:199-209`.
+- O otimizador desquantiza a cônica por `d4_desq_conic_opacity` (`fused_projection_backward_optimizer.slang:120`), que lê as constantes de `d4_fixed_point.slang`.
+- O D4b continua **sem mudança no C++** e **sem acoplamento com o passo**.
+
+**Limite por termo:** `Lc` = 2¹⁸ − 1 = 262.143,0, exato em `float32`. **Não** pode ser L/2¹³. Esse valor, 262.143,984375, também é exato em `float32`, mas o `round` o leva a 262.144, e 2¹³ × 262.144 = 2³¹ estouraria por uma unidade. Conferido numericamente. *(Correção, minutos depois: a primeira redação justificava a escolha por "L/2¹³ não seria exato", o que é falso.)* Com grade ≤ 2¹³ tiles, |acumulado| ≤ 2.147.475.456 < 2³¹ − 1.
+
+### Redigido: `pre-registro.md` §11.12, acrescentado ao fim, RASCUNHO
+
+O adendo contém:
+- **motivação e ordem real dos eventos:** os parâmetros foram fixados depois de D4, da medição densa e das tabelas de troca;
+- os dados que o fundamentam, com SHA-256;
+- **a correção datada de §11.2 e §11.9, sem editá-los:** a folga estava errada e D4 estourou;
+- a transformação, com `s=30`, `Lc` e a regra;
+- a organização no fork: 2 `.slang` alterados, nenhum C++;
+- **as verificações V0–V5.** V0 confere a grade de `images_4` na Ubuntu: a resolução **não foi lida** e o "82 × 53" era inferência minha, já corrigida acima. V2 prevê 2 `.spv` alterados e `default_update_state` bit-idêntico. V5 confere as constantes de escala no `.spv`;
+- **os critérios:**
+  - H3.4b pela identidade de hash, com expectativa de refutação;
+  - §5.2 D3 (N=30) × D4b;
+  - **QD4b**: |mediana D4b − mediana D3| < 0,10 dB;
+  - **a leitura de cada desfecho**, fixada antes de rodar;
+- limitações: entre elas, ~23% ainda zerados e o proxy sobre o acumulado;
+- **desvios D-8, D-9 e D-10.**
+
+**Ele só vale quando commitado, e tem de ser commitado antes da série.** Falta a revisão do aluno.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -2238,7 +2369,13 @@ O restante desta seção foi escrito em 2026-09-25 e está **superado nos pontos
 - o evento fica sem caracterização;
 - **caça à fonte residual encerrada** por decisão do aluno. A afirmação para o texto está na entrada de 2026-10-15.
 
-**Em andamento: D4b.** A escala de cônica será por faixa de passos. Antes do adendo §11.12 vem a **medição densa do gradiente de cônica em D3**, com custo medido antes. Ver a entrada de 2026-10-15, que corrige um exemplo meu errado.
+**Em andamento: D4b.**
+- A medição densa da cônica em D3 está **feita** (2026-10-15).
+- O desenho foi revisto: escala única `s=30` com `clamp` por termo em ±(2¹⁸ − 1), só na cônica.
+- O **adendo §11.12 está redigido em RASCUNHO**, à espera de revisão e commit do aluno antes da série.
+- Depois do commit: implementação e V0–V5, série N=10 e análise.
+
+Ver as entradas de 2026-10-15. Elas também registram que **D4 zerou de 90 a 98% da cônica e estourou o acumulador**.
 
 **Plano restante, decidido pelo aluno e reconfirmado em 2026-10-15: todas as iterações antes de escrever.** O congelamento passa de ~20/out. Itens, em ordem:
 1. ~~teste de estágios~~ **feito**;

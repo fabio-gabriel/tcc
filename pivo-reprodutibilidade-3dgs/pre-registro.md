@@ -567,3 +567,162 @@ Compilação: 16 jobs, zero falhas e zero avisos, com `slangc 2026.2.1` e as op�
 O compilador emitiu `Round` (GLSL.std.450 nº 1), e não `RoundEven`. A regra de desempate de `Round` é *"chosen by the implementation"*, o que é irrelevante para H3.4, como previsto em §11.2.
 
 **Com esta entrada commitada, D4 pode ser executado.**
+
+### 11.12 Adendo datado — 2026-10-15: degrau D4b, escala de cônica pelo regime com limite por termo
+
+> **Estado: RASCUNHO, redigido em 2026-10-15.** Torna-se vinculante quando commitado, e **tem de ser commitado antes da primeira execução medida de D4b**. Governa **apenas D4b**. Não altera §11.1–§11.11, que continuam governando D4, nem D0–D3. Entrada **acrescentada**: nenhuma linha anterior deste documento foi editada.
+
+#### 11.12.1 Por que D4b existe, e a ordem dos eventos
+
+A série de D4 (N=10, 2026-09-30) teve três resultados:
+- **H3.4 refutada**, com 10 hashes distintos em 10;
+- a transição D3 → D4 **sustentada pelo §5.2** em PSNR: Fligner p = 2,2·10⁻³, razão de IQR 0,115, IC [0,028 ; 0,606];
+- **−0,39 dB** de PSNR mediano em relação a D3.
+
+Um **confundidor** impede atribuir a redução de dispersão à acumulação inteira: a escala de cônica de D4 (`s` = 18/18/20, §11.2) zera quase todo o gradiente de covariância. Otimizar menos graus de liberdade pode, por si só, reduzir a dispersão. D4b mantém a acumulação inteira e troca **só** o tratamento da cônica.
+
+**Ordem dos eventos, declarada. Todos os parâmetros de D4b foram fixados depois de observar:**
+1. a série de D4, incluindo o resultado do §5.2 e a perda de qualidade;
+2. a medição densa da cônica em D3 (§11.12.2);
+3. as tabelas de fração zerada e saturada para `s` ∈ {24, 26, 28, 29, 30, 31}, apresentadas ao aluno **antes** da escolha da regra de §11.12.3.
+
+O valor `s=30` foi **calculado depois** da escolha da regra. A defesa é dupla:
+- como em §11.3, nenhum parâmetro tem grau de liberdade sobre o critério de H3.4b, que é a identidade de hash;
+- `s` sai de uma regra, e não de escolha direta, e a regra dá o mesmo valor nas duas definições de regime e em cada repetição isolada (§11.12.3).
+
+Ainda assim, isto é **mais fraco** que um pré-registro limpo, e a monografia declara a ordem real.
+
+#### 11.12.2 Medição que fundamenta D4b
+
+`experimentos/medir_conica_d4b.py`, em D3 (`d222c47…`), 3 repetições × 3.316 passos amostrados:
+- passos 0 a 99;
+- um a cada 10;
+- todos os passos de R a R+50 para R ∈ {3.000, 6.000, 9.000, 12.000}, os resets de opacidade (`gs_trainer.cpp:802, 1027`);
+- todos os passos de 15.000 a 15.050;
+- o passo 29.999.
+
+O script lê `v_inv_cov_vs_opacity` depois de cada `train_step` amostrado, e grava por componente o máximo exato e um histograma de expoente base 2. Dados em `dados/conica/conica_rep0{0,1,2}.ndjson.gz`. SHA-256 dos NDJSON descomprimidos:
+- `582ef2c5128016ef9808dd0a3c01d98d13aa1039dd599a1b480aa6643441b457`;
+- `01d1088e609bc4ed06330d425d543d06608a4da929276c4c32e42c1075810730`;
+- `d50f92d2a3298b9cdef787339850ec5727c61db64e3e328c8ba9878d42be05e4`.
+
+Pacotes idênticos aos da série D4, 0 NaN e 0 Inf. **Todos os números abaixo são reproduzidos por `experimentos/analisar_conica_d4b.py`**, commitado junto deste adendo.
+
+Sendo `s` a escala, sobre o gradiente **acumulado** por gaussiana: um valor **vira zero** se |g| < 2^−(s+1), **estoura** o acumulador se |g| ≥ 2^(31−s), e **satura** sob o limite de §11.12.3 se |g| ≥ 2^(18−s). As três condições são exatas nas fronteiras dos bins do histograma.
+
+| achado | valor |
+|---|---|
+| quantis 10/50/90/99% de \|g\| não nulo, passos 5.000–30.000 | ~2⁻³⁵, 2⁻²⁸, 2⁻²², 2⁻¹⁷ (as três componentes) |
+| máximo por passo, entre 1.000 e 3.050 / entre 15.051 e 30.000 | `conic_0`: 7,7·10⁶ / 2,3·10⁶ |
+| D4, fração zerada, de 1.000 em diante | 0,84 a 0,98 conforme faixa e componente |
+| D4, passos com ≥ 1 gaussiana estourando, de 0 a 3.050 | 0,06 a 0,13 |
+| D4, opacidade (`s=34`, capacidade 0,125) | máximo 0,288; 18 de 9.948 passos acima |
+
+**Correção datada a §11.2 e §11.9, item 2, sem editá-los.** A "folga de 2,1× a 2,8× sobre o máximo" de §11.2 saiu de 16 amostras por execução e **estava errada**: o máximo denso é ~3 ordens de grandeza maior. **D4 estourou o acumulador** de cônica e de opacidade em uma fração dos passos, e o estouro devolve gradiente com valor e sinal arbitrários. Isso **não afeta H3.4**, porque a soma modular continua associativa (§11.3). Afeta a qualidade de D4 e a sua descrição como intervenção, e a monografia declara isso. `xy` e `rgb` não foram medidos densamente, e não se sabe se estouraram.
+
+#### 11.12.3 A transformação, com os valores fixados
+
+**Só os 3 componentes de cônica mudam.** Opacidade, `xy` e `rgb` ficam **exatamente** como em D4 (§11.2), com a mesma escala, a mesma quantização e o mesmo `L`. A comparação D4 × D4b isola o tratamento da cônica.
+
+Para cada um dos 3 termos de cônica:
+
+```
+q = int( round( clamp( v · 2^30 , −Lc , +Lc ) ) )     Lc = 262143.0 = 2^18 − 1
+se q ≠ 0:  InterlockedAdd(buffer, 4·endereço, q)        // OpAtomicIAdd, inteiro de 32 bits
+```
+
+No consumidor: `v = float(q) · 2^−30`.
+
+**Regra que fixa `s`, decidida pelo aluno em 2026-10-15:**
+- escala **única**, sem faixas de passos;
+- `s` = **maior inteiro** tal que a fração de valores acumulados não nulos com |g| ≥ 2^(18−s) seja **≤ 10⁻³** no regime, passos de 3.051 a 30.000, somando as 3 repetições.
+
+Resultado:
+
+| componente | `s` | saturação (proxy) no regime | com `s+1` | fração zerada no regime |
+|---|---|---|---|---|
+| `conic_0` | **30** | 8,19·10⁻⁴ | 1,39·10⁻³ | 0,227 |
+| `conic_1` | **30** | 8,11·10⁻⁴ | 1,36·10⁻³ | 0,222 |
+| `conic_2` | **30** | 6,42·10⁻⁴ | 1,12·10⁻³ | 0,243 |
+
+**Robustez:** com o regime definido como passos de 5.000 a 30.000, e em cada repetição isolada, a regra dá `s=30` nos três componentes.
+
+**Por que o limite por termo em 2¹⁸ − 1, e por que ele elimina o estouro.** No backward `per_splat` de D4:
+- o laço de lotes de pixels roda **uma vez**, porque `PIXEL_BATCH_SIZE = TILE_SIZE` (`alphablend_shader_bwd_per_splat.slang:12, 87`);
+- cada gaussiana de um tile é tratada uma única vez entre as rodadas (`:89-97`);
+- os atômicos ficam dentro desses laços (`:199-209`).
+
+Logo o acumulador de uma gaussiana recebe **exatamente K termos**, um por tile tocado, e K não passa do número de tiles da grade, ⌈W/16⌉·⌈H/16⌉ (`config.slang:15-16`). O K máximo medido em `dados/gradientes/` é 4.346. Ele se repete nos passos 0, 1, 10 e 100, o que é compatível com uma gaussiana cobrindo a grade inteira. **A dimensão de `images_4` não foi lida diretamente, e é conferida em V0 (§11.12.5).** Com grade ≤ 2¹³ = 8.192 tiles:
+- |acumulado| ≤ 8.192 × 262.143 = 2.147.475.456 < 2³¹ − 1 (com K = 4.346: 1.139.273.478);
+- **o estouro é impossível**;
+- `Lc` = 262.143,0 é exato em `float32`. **Não se usa L/2¹³** = 262.143,984375: também é exato, mas o `round` o leva a 262.144, e 2¹³ × 262.144 = 2³¹ estouraria;
+- o `clamp` é por termo, função pura do termo, e preserva a associatividade (D-4). **Fica proibido saturar o acumulador.**
+
+**Efeito previsto, pelo proxy** (acumulado, não termo):
+
+| faixa de passos | fração zerada | fração saturada |
+|---|---|---|
+| 0–1.000 | 0,02 | 1,2·10⁻² a 2,0·10⁻² |
+| 1.000–3.050 | 0,13 a 0,15 | ~3·10⁻³ |
+| 3.051–30.000 | 0,17 a 0,26 | 5·10⁻⁴ a 1,8·10⁻³ |
+
+Os valores são dos três componentes. Em D4 a fração zerada era de 0,84 a 0,98.
+
+#### 11.12.4 Organização da mudança no fork
+
+**Commit `D4b`, filho direto de D4** (`22560858…`), na branch `tcc-base`, com tag leve `D4b`.
+
+| arquivo | ação |
+|---|---|
+| `vksplat/slang/d4_fixed_point.slang` | `D4_ESC_CONIC_{0,1,2}` passam a 2³⁰ e `D4_INV_CONIC_{0,1,2}` a 2⁻³⁰. Acrescentar `Lc` e a função de quantização da cônica com `clamp` em ±`Lc`. Constantes de `xy`, opacidade e `rgb`, `D4_LIM` e `d4_quantizar` **intocados** |
+| `vksplat/slang/alphablend_shader_bwd_per_splat.slang` | só os 3 sítios de cônica (`:203-205`) passam a usar a quantização da cônica |
+| `fused_projection_backward_optimizer.slang`, `default.slang`, `config.slang`, `utils.slang`, `compile_shaders.py`, qualquer `.cpp`/`.h` | **não tocar**. O otimizador desquantiza a cônica por `d4_desq_conic_opacity` (`:120`), que lê as constantes do arquivo compartilhado: produtor e consumidor usam a mesma fonte por construção |
+
+Compilação: `slangc 2026.2.1`, com as opções do upstream (§11.6) e o comando replicado de T0 (§11.5), pelos 16 jobs dos 3 grupos.
+
+#### 11.12.5 Verificações, todas antes da primeira execução medida de D4b
+
+| | verificação | critério |
+|---|---|---|
+| V0 | grade de tiles da cena | dimensão de uma imagem de `garden/images_4`, lida na Ubuntu: ⌈W/16⌉·⌈H/16⌉ ≤ 8.192. Valor registrado na entrada datada do SHA |
+| V1 | fork limpo, tag `D4b` no commit, **pai = D4**, SHA registrado em entrada datada posterior | `git status --porcelain` vazio; `git rev-parse D4b^` = `22560858…` |
+| V2 | `git diff --name-status D4 D4b` | **exatamente** os 2 `.slang` acima e 2 `.spv`: `shader/generated/rasterize_backward_1.spv` e `shader/generated/fused_projection_backward_optimizer.spv`. **Previsto:** `default_update_state.spv` bit-idêntico a D4, porque `default.slang` não usa as constantes de cônica. Qualquer `.spv` a mais é defeito a investigar antes da série |
+| V3 | perfil do produtor `rasterize_backward_1.spv` | `OpAtomicIAdd` ×9, `OpAtomicFAddEXT` ×0, sem `SPV_EXT_shader_atomic_float_add`; `Round`, `FClamp` e `OpConvertFToS` com a mesma contagem de D4 |
+| V4 | perfil do otimizador | nenhum atômico; `OpConvertSToF` com a mesma contagem de D4 |
+| V5 | constantes `float` (`OpConstant`) | o produtor contém 2³⁰ e ±262.143,0 e **não** contém 2¹⁸ nem 2²⁰; o otimizador contém 2⁻³⁰ e **não** contém 2⁻¹⁸ nem 2⁻²⁰. Se uma dessas constantes aparecer por outro motivo, é investigada e declarada antes da série |
+
+#### 11.12.6 Execução e critérios
+
+- **Série:** `bash run_degree.sh D4b 0 9`, sob o ambiente congelado, com `ambiente.json` por execução e as checagens do §9 inalteradas.
+- **N:** §5.1 sem mudança, `N_min` = 10.
+- **H3.4b, pelo critério do §6:** sustentada se os `splat.ply` das N execuções tiverem **hash idêntico**, e refutada caso contrário. **Expectativa declarada:** refutada, porque a fonte residual de D4 (caderno, 2026-10-14/15) não é tocada.
+- **Dispersão, §5.2 sem mudança:** D3 (N=30) × D4b em PSNR, com Fligner-Killeen e IC 95% bootstrap percentílico da razão de IQRs, 10.000 reamostragens, seed `20260909`, critério conjuntivo. `num_splats` é secundário.
+- **Qualidade, QD4b:** satisfeito se |mediana PSNR de D4b − mediana PSNR de D3 (N=30)| < **0,10 dB**, o limiar de relevância de H2 (§6). Reportados também SSIM, LPIPS e tempo, contra D3 e contra D4.
+
+**Leitura de cada desfecho, fixada antes de rodar:**
+
+| §5.2 D3→D4b | QD4b | leitura |
+|---|---|---|
+| sustentado | satisfeito | a redução de dispersão coexiste com qualidade recuperada. A atribuição à acumulação inteira **se fortalece**, e o confundidor de D4 **enfraquece**. Não some: D4b ainda zera ~23% da cônica no regime |
+| sustentado | não satisfeito, mas D4b acima de D4 por ≥ 0,10 dB | idem quanto à dispersão. A qualidade se recupera em parte, e o resto da perda fica sem atribuição |
+| sustentado | D4b a menos de 0,10 dB de D4 | **refutada a hipótese** de que a perda de 0,39 dB de D4 vem da quantização da cônica |
+| não sustentado | qualquer | a redução D3→D4 **pode** se dever à supressão da cônica, e a atribuição de D4 é reportada como não estabelecida. Não é conclusivo: com N=10 o teste tem poder limitado, embora D3→D4 tenha passado com o mesmo N |
+
+#### 11.12.7 Limitações de D4b, declaradas antes da execução
+
+1. **~23% do gradiente de cônica continuam zerados no regime.** O ponto fixo de 32 bits não cobre a faixa dinâmica medida, de mais de 40 bits. D4b é um ponto melhor da troca entre zerar e saturar, não a sua eliminação. **Isso é achado do trabalho:** acumulação determinística em ponto fixo de 32 bits não é substituição neutra do `float` para o gradiente de cônica do 3DGS.
+2. **O proxy de saturação usa o acumulado, não os termos.** Os termos não foram medidos.
+3. **A saturação no início do treino é maior,** de 1–2% pelo proxy entre os passos 0 e 1.000. Por inferência, sob o Adam saturar se aproxima de um *clipping* de gradiente, enquanto zerar congela o parâmetro. Não é verificado.
+4. **Opacidade, `xy` e `rgb` herdam os limites de D4,** inclusive os estouros raros de opacidade medidos em D3 e os eventuais estouros de `xy` e `rgb`, não medidos. D4 e D4b os compartilham.
+5. **A garantia contra estouro depende de a grade ter no máximo 2¹³ tiles** (V0).
+6. **A medição foi feita em trajetórias de D3,** como em D-2. As trajetórias de D4b não serão iguais.
+7. **A fonte residual de não-determinismo de D4 persiste** e não é tocada.
+8. Os itens de §11.9 continuam valendo: execução no RADV, NaN, modo de denormais, especificação Vulkan, dependência D2 → D4 e `VK_EXT_shader_atomic_float`.
+
+#### 11.12.8 Desvios declarados — 2026-10-15
+
+| # | o que valia | o que vale para D4b | por quê |
+|---|---|---|---|
+| D-8 | §11.2: `s = floor(log2(2³⁰ / máx_observado))`, com o máximo de 16 amostras | `s` pela regra de saturação ≤ 10⁻³ no regime, com `clamp` por termo em ±(2¹⁸ − 1) **na cônica** | o máximo esparso estava errado em ~3 ordens de grandeza, e nenhuma escala sem limite por termo evita o estouro (§11.12.2) |
+| D-9 | §11.2: `clamp` por termo em ±`L` | na cônica, ±`Lc` = ±(2¹⁸ − 1); nos outros 6 componentes, ±`L` como em D4 | garantia de não-estouro para K ≤ 2¹³ (§11.12.3) |
+| D-10 | parâmetros fixados antes de observar o degrau anterior | fixados depois de observar D4 e a medição densa | §11.12.1 |
