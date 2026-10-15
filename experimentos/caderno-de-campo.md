@@ -2400,6 +2400,33 @@ Derivado de `compilar_d4.py`, com a mesma função de perfil e o mesmo comando d
 
 **O que os testes não cobrem:** o `slangc` real. Só a Ubuntu diz se o compilador emite as constantes como previsto, se o `default_update_state` sai idêntico e se a contagem de `FClamp` se mantém.
 
+## 2026-10-15 — D4b commitado no fork (`8942107f`) e **conferido de forma independente**
+
+O aluno relatou que o `compilar_d4b.py` deu "pronto para commit", e que commitou e deu push no fork. **A saída literal do verificador, o `verificacao_d4b.json` e a V0 completa (todas as imagens) ainda não chegaram**, e ficam pendentes para a entrada datada do pré-registro.
+
+**Conferência independente, feita no Mac a partir do remoto** (`git fetch origin tag D4b` no clone de leitura, que escreve só refs; a árvore com o rascunho de D4 não foi tocada):
+- **V1:** `D4b` = `8942107f13e70e2cad6bcf9fe29630568a6565d7`, commit de 2026-10-15T19:43:37−03:00, mensagem "D4b: conica com escala 2^30 e limite por termo 2^18-1 (pre-registro §11.12)". Pai = `22560858…` (D4). `tcc-base` e a tag `D4b` no remoto apontam para ele;
+- **fontes:** os 2 `.slang` de `D4b` são **idênticos**, por `diff -rq`, a D4 com `experimentos/d4b/d4b.patch` aplicado;
+- **V2:** `git diff --name-status D4 D4b` dá exatamente 4 arquivos: os 2 `.slang`, `rasterize_backward_1.spv` e `fused_projection_backward_optimizer.spv`. **`default_update_state.spv` é bit-idêntico a D4**, como previsto;
+- **V3:** o produtor tem `OpAtomicIAdd` ×9, nenhum atômico de `float`, `Round` 9, `FClamp` 9, `FMin` 2 e `OpConvertFToS` 10, **iguais a D4**;
+- **V4:** o otimizador tem atômicos e `OpConvertSToF` (17) iguais a D4;
+- **V5:**
+  - no produtor **saem** 262.144 (2¹⁸) e 1.048.576 (2²⁰), e **entram** ±262.143 e 1.073.741.824 (2³⁰);
+  - no otimizador saem 2⁻¹⁸ e 2⁻²⁰, e entra 2⁻³⁰;
+  - **nenhuma outra constante muda**;
+- SHA-256 dos `.spv` commitados:
+  - `rasterize_backward_1`: `9f1977b9d78a5b5657cf7aeeecc8fbc31f4fc5a8839f5be1756285a09d773880`;
+  - `fused_projection_backward_optimizer`: `498ec66973902ed78128128fc74baba8c01e61230d6553413dfc0218f1ad651c`.
+
+**Falta para a entrada datada do pré-registro:**
+- a V0 completa;
+- o `verificacao_d4b.json`, para conferir que os SHA-256 que o verificador aprovou na árvore são os mesmos dos `.spv` commitados, e que não houve aviso do compilador.
+
+**Atualização no mesmo dia:**
+- **V0 completa**, saída literal: `185 imagens, tamanhos: {(1297, 840)}`. São 4.346 tiles em todas as imagens;
+- **`pre-registro.md` §11.13 redigido**, com o SHA de D4b, V0–V5 pela conferência independente e a ordem dos eventos (§11.12 commitado 9 min 15 s antes de D4b);
+- o relatório do verificador continua sem ser visto. O §11.13 o declara como **condição para a série**: os SHA-256 têm de coincidir e não pode haver aviso do compilador. O §11.13 ainda não foi commitado.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro

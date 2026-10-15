@@ -726,3 +726,30 @@ Compilação: `slangc 2026.2.1`, com as opções do upstream (§11.6) e o comand
 | D-8 | §11.2: `s = floor(log2(2³⁰ / máx_observado))`, com o máximo de 16 amostras | `s` pela regra de saturação ≤ 10⁻³ no regime, com `clamp` por termo em ±(2¹⁸ − 1) **na cônica** | o máximo esparso estava errado em ~3 ordens de grandeza, e nenhuma escala sem limite por termo evita o estouro (§11.12.2) |
 | D-9 | §11.2: `clamp` por termo em ±`L` | na cônica, ±`Lc` = ±(2¹⁸ − 1); nos outros 6 componentes, ±`L` como em D4 | garantia de não-estouro para K ≤ 2¹³ (§11.12.3) |
 | D-10 | parâmetros fixados antes de observar o degrau anterior | fixados depois de observar D4 e a medição densa | §11.12.1 |
+
+### 11.13 Registro datado — 2026-10-15: SHA de D4b e verificações V0–V5
+
+> Entrada **acrescentada**. Não edita §11.12.
+
+**Ordem dos eventos, verificável pelo histórico.** O §11.12 entrou no commit `5a3b4a7`, em 2026-10-15T19:34:22−03:00. O commit de D4b no fork é **9 min 15 s posterior**. Nenhuma execução de D4b aconteceu antes desta entrada.
+
+**SHA de D4b: `8942107f13e70e2cad6bcf9fe29630568a6565d7`.** Commit de 2026-10-15T19:43:37−03:00 na branch `tcc-base` do fork, com tag leve `D4b`, ambos no remoto. Seu pai é `22560858b0f23586176ea3bf03907c607d8c944f` (D4), em cadeia linear.
+
+| | resultado |
+|---|---|
+| V0 | as **185** imagens de `garden/images_4` têm 1297 × 840 px, o que dá ⌈1297/16⌉ × ⌈840/16⌉ = 82 × 53 = **4.346 tiles ≤ 8.192**. Saída literal, na Ubuntu: `185 imagens, tamanhos: {(1297, 840)}` |
+| V1 | pai = D4; commit e tag no remoto. A árvore limpa é checada pelo `run_degree.sh` antes do checkout (§9), como em D4 |
+| V2 | `git diff --name-status D4 D4b`: exatamente `d4_fixed_point.slang` e `alphablend_shader_bwd_per_splat.slang` modificados, mais `rasterize_backward_1.spv` e `fused_projection_backward_optimizer.spv`. **`default_update_state.spv` bit-idêntico a D4**, como previsto. As 2 fontes de `D4b` são idênticas a D4 com `experimentos/d4b/d4b.patch` aplicado |
+| V3 | `rasterize_backward_1.spv`: `OpAtomicIAdd` ×9, nenhum atômico de ponto flutuante. `Round` 9, `FClamp` 9, `FMin` 2 e `OpConvertFToS` 10, **iguais a D4** |
+| V4 | `fused_projection_backward_optimizer.spv`: atômicos e `OpConvertSToF` (17) iguais a D4 |
+| V5 | constantes `float` de 32 bits. No produtor **saem** 2¹⁸ e 2²⁰ e **entram** 2³⁰, +262.143 e −262.143. No otimizador saem 2⁻¹⁸ e 2⁻²⁰ e entra 2⁻³⁰. **Nenhuma outra constante muda** em nenhum dos dois |
+
+**Como V2–V5 foram verificadas.** Por conferência independente no Mac, sobre os **objetos commitados** no remoto (`git show D4b:<arquivo>`), com `compilar_d4.perfil`, `inspecionar_spirv.constantes_float32` e as funções de verificação de `compilar_d4b.py`. Essa conferência vale para o artefato que será executado, e não só para a árvore de trabalho antes do commit.
+
+SHA-256 dos `.spv` commitados:
+- `rasterize_backward_1.spv`: `9f1977b9d78a5b5657cf7aeeecc8fbc31f4fc5a8839f5be1756285a09d773880`;
+- `fused_projection_backward_optimizer.spv`: `498ec66973902ed78128128fc74baba8c01e61230d6553413dfc0218f1ad651c`.
+
+**Pendente, e condição para a série.** O relatório do verificador na Ubuntu, `verificacao_d4b.json`, não foi visto na redação desta entrada. O aluno relatou o veredito "PRONTO PARA COMMIT DE D4b", e isso é relato, não saída conferida. **Antes da primeira execução medida**, é preciso conferir que os `sha256_D4b` do relatório coincidem com os acima e que nenhum job teve saída do compilador. O relatório vai para `dados/toolchain/verificacao_d4b.json`. Uma divergência suspende a série até ser explicada.
+
+**Com esta entrada commitada e a condição acima satisfeita, D4b pode ser executado.**
