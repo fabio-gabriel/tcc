@@ -2427,6 +2427,68 @@ O aluno relatou que o `compilar_d4b.py` deu "pronto para commit", e que commitou
 - **`pre-registro.md` §11.13 redigido**, com o SHA de D4b, V0–V5 pela conferência independente e a ordem dos eventos (§11.12 commitado 9 min 15 s antes de D4b);
 - o relatório do verificador continua sem ser visto. O §11.13 o declara como **condição para a série**: os SHA-256 têm de coincidir e não pode haver aviso do compilador. O §11.13 ainda não foi commitado.
 
+**Atualização de 2026-10-16, conferida no remoto antes de olhar qualquer resultado da série:**
+- §11.13 commitado em `5957879` (2026-10-15T19:49:40−03:00);
+- `dados/toolchain/verificacao_d4b.json` commitado em `2271072` (19:50:40);
+- **condição do §11.13 satisfeita**, conferida por mim no arquivo commitado:
+  - relatório gerado às 22:42:45Z, ou 19:42:45−03:00, antes do commit de D4b;
+  - `slangc 2026.2.1`, base D4;
+  - `sha256_D4b` dos 2 `.spv` **iguais** aos commitados;
+  - 16 jobs, 0 falhas, 0 avisos;
+  - V2–V5 `True`, `default_update_state` bit-idêntico.
+- O aluno informou que a série `run_degree.sh D4b 0 9` terminou. Os horários reais de início ficam para conferir no `ambiente-serie-*.json` e nos logs coletados.
+
+## 2026-10-16 — Série D4b, N=10: **H3.4b refutada; §5.2 sustentado; QD4b satisfeito**. A qualidade volta ao nível de D3 e a dispersão continua reduzida
+
+Dados em `dados/D4b/`, commit `9bc1086`. Análise em `experimentos/analisar_d4b.py`, ainda não commitado. Ele usa o procedimento do §5.2 **idêntico** ao de D3 → D4 (`apresentacao/gerar_apresentacao.py:127-136, 179-189`).
+
+### Integridade, conferida antes de abrir qualquer métrica
+
+- 10 execuções, todas com `vksplat_commit` = `8942107f13…` (D4b), `vksplat_dirty` vazio, que é a saída de `git status --porcelain` (`tcc_runner.py:27`), ou seja árvore limpa, e `train_device 0`;
+- boot `d6ccf370`, kernel `-31`, **pacotes idênticos aos da série D4**;
+- snapshot da série às 2026-10-15T19:50:43−03:00, ou seja **63 s depois do commit do §11.13** e 3 s depois do commit do relatório. As execuções terminam a cada ~16 min, de 20:07 a 22:30;
+- nos 10 logs: RX 9070 XT (RADV GFX1201) marcada como `VIABLE`, `llvmpipe` `NOT VIABLE`, nenhum `USE_EMULATED`;
+- **escalonador desligado:** só aparece o timer `RasterizeBackward - 30000`, do caminho sem escalonamento, sem nenhum `_RasterizeBackwardScheduling_*`. É o mesmo padrão de D4;
+- `build.log` termina com `Successfully installed vksplat-0.1.0`;
+- **sanidade da análise:** o script recalcula D3 → D4 e obtém p = 2,19·10⁻³, razão 0,115 e IC [0,028 ; 0,606], idênticos aos de 2026-10-05.
+
+### Critérios do §11.12.6
+
+| critério | resultado | veredito |
+|---|---|---|
+| **H3.4b**, identidade de hash | **10 hashes distintos em 10** | **refutada**, como esperado |
+| **§5.2 D3 (N=30) × D4b, PSNR**, o pré-registrado | Fligner p = **6,1·10⁻⁴**; razão de IQR **0,120**; IC 95% **[0,038 ; 0,311]** | **sustentado** |
+| §5.2, `num_splats` (secundário) | p = 6,8·10⁻⁵. O IQR de D4b é **zero**, porque as 10 execuções têm o mesmo N, e o IC fica degenerado em [0 ; 0] | sustentado, com IC degenerado |
+| **QD4b** | \|27,3544 − 27,3882\| = **0,034 dB** < 0,10 | **satisfeito** |
+
+**Leitura, pela primeira linha da tabela de desfechos do §11.12.6, fixada antes de rodar:** a redução de dispersão coexiste com qualidade recuperada. **A atribuição da redução à acumulação inteira se fortalece, e o confundidor de D4 enfraquece.** Ele não some, porque D4b ainda zera ~23% da cônica no regime, pelo proxy medido em trajetórias de D3.
+
+**Sobre a hipótese da perda de qualidade de D4** (2026-10-01): D4b − D4 = **+0,357 dB**, o que recupera ~91% dos 0,39 dB. Pela terceira linha da tabela, a hipótese de que a perda de D4 vinha da quantização da cônica **não é refutada**, e tem agora evidência direta a favor.
+
+### Descritivos
+
+| | mediana | IQR | mín. | máx. | amplitude |
+|---|---|---|---|---|---|
+| PSNR D3 (N=30) | 27,3882 | 0,0334 | 27,3400 | 27,4344 | 0,0944 |
+| PSNR D4 | 26,9977 | 0,0038 | 26,9922 | 27,0165 | 0,0243 |
+| **PSNR D4b** | **27,3544** | **0,0040** | 27,3492 | 27,3581 | **0,0090** |
+| SSIM D3 / D4 / D4b | 0,8637 / 0,8471 / **0,8638** | | | | |
+| LPIPS-Alex D3 / D4 / D4b | 0,0761 / 0,0998 / **0,0759** | | | | |
+| `num_splats` D3 / D4 / D4b | 5,81 M / 5,94 M / **5.830.035 nas 10** | 15.694 / 18 / **0** | | | |
+| tempo (s) D3 / D4 / D4b | 942,5 / 870,5 / **873,7** | 4,2 / 3,1 / 1,4 | | | |
+
+- **Densificação, grandeza secundária do §4:** em D4b, **as 10 execuções são idênticas nos 144 eventos**, e há uma única sequência completa. Em D4 eram 6 sequências, com divergência a partir do evento 129; em D3, já no evento 0. Os 10 `splat.ply` têm o mesmo tamanho. **A divergência de D4b é só de valor**, sem cruzar nenhum limiar de densificação.
+- **Tempo:** D4b é 7,3% mais rápido que D3 e 0,4% mais lento que D4. Fica registrado sem interpretação, como em D4.
+- Os 10 PSNR de D4b ficam **dentro** da faixa de D3, e nenhum par em D3, D4 ou D4b difere em ≥ 0,10 dB.
+
+### Escrutínio, porque o resultado é favorável
+
+1. **"Dose-resposta" sem dose controlada.** De D4 para D4b, a supressão da cônica cai de ~97% para ~23% (proxy em D3), e a redução de dispersão fica no mesmo nível (0,115 contra 0,120, com ICs sobrepostos). Isso é o que se esperaria se a redução viesse da acumulação, e não da supressão. **Mas são dois pontos, e os ~23% restantes não foram eliminados.** Uma variante com resolução equivalente à do `float` (64 bits) não está disponível (§10.4) e não foi testada.
+2. **O D3 é heterogêneo**, com três estratos de ambiente. Na sensibilidade, que não é critério e não substitui o pré-registrado, D3 `run020`–`029` × D4b dá p = 9,0·10⁻⁴, razão 0,084 e IC [0,029 ; 0,345]. A conclusão não muda.
+3. **Opacidade, `xy` e `rgb` herdam os limites de D4**, inclusive os estouros raros de opacidade medidos em D3. D4 e D4b os compartilham, então a comparação entre os dois isola a cônica. A comparação com D3 não isola.
+4. **O IC de `num_splats` é degenerado**, porque o IQR de D4b é zero. Reportar como "N idêntico nas 10", e não como um IC.
+5. **N=10.** O mesmo N com que D3 → D4 passou.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -2456,17 +2518,19 @@ O restante desta seção foi escrito em 2026-09-25 e está **superado nos pontos
 - o evento fica sem caracterização;
 - **caça à fonte residual encerrada** por decisão do aluno. A afirmação para o texto está na entrada de 2026-10-15.
 
-**Em andamento: D4b.**
-- A medição densa da cônica em D3 está **feita** (2026-10-15).
-- O desenho foi revisto: escala única `s=30` com `clamp` por termo em ±(2¹⁸ − 1), só na cônica.
-- O **adendo §11.12 está redigido em RASCUNHO**, à espera de revisão e commit do aluno antes da série.
-- Depois do commit: implementação e V0–V5, série N=10 e análise.
+**D4b feito (2026-10-16).**
+- Commit `8942107f` no fork; §11.12 (`5a3b4a7`) e §11.13 (`5957879`) commitados antes da série; dados em `dados/D4b/` (`9bc1086`).
+- **H3.4b refutada**: 10 hashes distintos em 10.
+- **§5.2 D3 → D4b sustentado**: p = 6,1·10⁻⁴, razão 0,120, IC [0,038 ; 0,311].
+- **QD4b satisfeito**: 0,034 dB abaixo de D3, com SSIM e LPIPS iguais aos de D3. D4b recupera ~91% da perda de D4.
+- Densificação idêntica nos 144 eventos e mesmo N nas 10 execuções.
+- Leitura pela tabela do §11.12.6: a atribuição da redução de dispersão à acumulação inteira se fortalece; o confundidor enfraquece e não some, porque ~23% da cônica continuam zerados.
 
-Ver as entradas de 2026-10-15. Elas também registram que **D4 zerou de 90 a 98% da cônica e estourou o acumulador**.
+Ver a entrada de 2026-10-16. As de 2026-10-15 registram que **D4 zerou de 90 a 98% da cônica e estourou o acumulador**.
 
-**Plano restante, decidido pelo aluno e reconfirmado em 2026-10-15: todas as iterações antes de escrever.** O congelamento passa de ~20/out. Itens, em ordem:
+**Plano restante, decidido pelo aluno e reconfirmado em 2026-10-15: todas as iterações antes de escrever.** Itens, em ordem:
 1. ~~teste de estágios~~ **feito**;
-2. **D4b:** medição densa → adendo §11.12 commitado → implementação e V1–V5 → série N=10 → análise;
+2. ~~D4b~~ **feito** em 2026-10-16;
 3. diagnóstico de `.ply` em D3, com os arquivos no HD externo;
 4. H4, comparação com os valores publicados do VkSplat;
 5. H3b, executar ou declarar não executada;
