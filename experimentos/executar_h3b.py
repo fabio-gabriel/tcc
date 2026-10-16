@@ -60,8 +60,12 @@ def escolher(x, run_idx, semente=SEMENTE_H3B):
     raise RuntimeError(f"so {k + 1} gaussianas validas para run_idx={run_idx}")
 
 
-def perturbar(module, run_idx):
-    """Inverte um bit, rele e verifica. Devolve o registro para o env.json."""
+def perturbar(module, run_idx, placebo=False):
+    """Inverte um bit (ou, em placebo, nenhum), rele e verifica. Devolve o registro.
+
+    PLACEBO (controle acrescentado em 2026-10-16, depois de ver H3b, §11.15):
+    mesmo caminho -- getter, copia, setter, releitura --, mas SEM inverter o bit.
+    Separa o efeito do bit do efeito de regravar o buffer pelo setter."""
     x0 = np.array(module.xyz_ws, dtype=np.float32, copy=True)
     if x0.ndim != 2 or x0.shape[1] != 3:
         raise RuntimeError(f"xyz_ws com forma inesperada {x0.shape}")
@@ -70,14 +74,19 @@ def perturbar(module, run_idx):
     x1 = x0.copy()
     u = x1.view(np.uint32)
     antes = int(u[g, COORD])
-    u[g, COORD] ^= np.uint32(1 << BIT)
+    if not placebo:
+        u[g, COORD] ^= np.uint32(1 << BIT)
     module._set_xyz_ws(x1)
     x2 = np.array(module.xyz_ws, dtype=np.float32, copy=True)
     dif = np.argwhere(x2.view(np.uint32) != x0.view(np.uint32))
-    ok = (x2.shape == x0.shape and len(dif) == 1 and tuple(dif[0]) == (g, COORD)
-          and int(x2.view(np.uint32)[g, COORD]) == antes ^ (1 << BIT))
+    if placebo:
+        ok = x2.shape == x0.shape and len(dif) == 0
+    else:
+        ok = (x2.shape == x0.shape and len(dif) == 1 and tuple(dif[0]) == (g, COORD)
+              and int(x2.view(np.uint32)[g, COORD]) == antes ^ (1 << BIT))
     reg = {"semente": SEMENTE_H3B, "run_idx": run_idx, "n_inicial": int(len(x0)),
-           "gaussiana": g, "coordenada": "x", "bit": BIT,
+           "placebo": bool(placebo), "gaussiana": g, "coordenada": "x",
+           "bit": None if placebo else BIT,
            "valor_antes": float(x0[g, COORD]), "valor_depois": float(x2[g, COORD]),
            "bits_antes": f"0x{antes:08x}", "bits_depois": f"0x{int(x2.view(np.uint32)[g, COORD]):08x}",
            "sha256_xyz_inicial": sha0, "uint32_diferentes_apos_releitura": int(len(dif)),
@@ -94,6 +103,8 @@ def main() -> int:
     ap.add_argument("out_root")
     ap.add_argument("degree")
     ap.add_argument("--fork", required=True, help="diretorio vksplat/ do fork")
+    ap.add_argument("--placebo", action="store_true",
+                    help="controle (§11.15): regrava o buffer pelo setter SEM inverter bit")
     a = ap.parse_args()
     if a.run_idx < 0:
         ap.error("run_idx >= 0")
@@ -124,7 +135,7 @@ def main() -> int:
            "vksplat_dirty": git("status", "--porcelain"),
            "dataset_dir": cfg.dataset_dir, "image_dir": cfg.image_dir,
            "train_steps": cfg.train_steps, "strategy": cfg.strategy,
-           "runner": "experimentos/executar_h3b.py", "h3b": None}
+           "runner": "experimentos/executar_h3b.py" + (" --placebo" if a.placebo else ""), "h3b": None}
     env_path = os.path.join(cfg.output_dir, "env.json")
 
     def gravar_env():
@@ -139,9 +150,9 @@ def main() -> int:
         if not estado["feito"]:
             if step != 0:
                 raise RuntimeError(f"primeiro train_step com step={step}, esperado 0")
-            env["h3b"] = perturbar(self, a.run_idx)
+            env["h3b"] = perturbar(self, a.run_idx, placebo=a.placebo)
             gravar_env()
-            print(f"[h3b] run {a.run_idx}: gaussiana {env['h3b']['gaussiana']} x "
+            print(f"[h3b]{' PLACEBO' if a.placebo else ''} run {a.run_idx}: gaussiana {env['h3b']['gaussiana']} x "
                   f"{env['h3b']['valor_antes']!r} -> {env['h3b']['valor_depois']!r} "
                   f"({env['h3b']['bits_antes']} -> {env['h3b']['bits_depois']}), verificado", flush=True)
             estado["feito"] = True

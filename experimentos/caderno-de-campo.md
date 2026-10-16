@@ -2683,6 +2683,68 @@ Opções apresentadas com recomendação; o aluno escolheu as recomendadas:
 
 **Só vale commitado, e antes da série.**
 
+## 2026-10-16 — Série H3b, N=10: **H3b sustentada, com aumento sustentado sobre D4b**. Leitura: instabilidade. Falta o controle placebo
+
+Adendo §11.14 commitado em `8787bde` (11:02:32−03:00). Dados em `dados/H3b/` (`6335a17`). Análise em `experimentos/analisar_h3b.py`, ainda não commitado, que reusa as funções de `analisar_d4b.py`.
+
+### Integridade, conferida antes de abrir qualquer métrica
+
+- snapshot da série às 11:20:03, **17 min depois do commit do adendo**. O teste curto no binding real foi feito pelo aluno antes da série, fora de `series/`, e não entra nos dados;
+- 10 execuções com commit `8942107f` (D4b), `vksplat_dirty` vazio, `train_device 0` e `runner` = `experimentos/executar_h3b.py`;
+- boot `d6ccf370` e **pacotes idênticos aos de D4b**;
+- RADV GFX1201 `VIABLE`, `llvmpipe` `NOT VIABLE`, sem `USE_EMULATED`, só o timer `RasterizeBackward - 30000`, sem escalonamento. `build.log` termina com sucesso;
+- **perturbação:**
+  - em todas, `verificado: true`, com **exatamente um `uint32` diferente** na releitura e diferença de **1 ULP**;
+  - as 10 gaussianas (19518, 2962, 133730, 112410, 78207, 31439, 30888, 36881, 26581, 128118) são **exatamente** `default_rng(20261016).permutation(138766)[0:10]`, sem nenhuma pulada;
+  - o SHA-256 da posição inicial é **o mesmo nas 10** (`f4b0b089e31a7770…`): a inicialização é determinística;
+- **sanidade da análise:** D3 → D4b reproduz p = 6,13·10⁻⁴, razão 0,120 e IC [0,038 ; 0,311].
+
+### Critérios do §11.14.5
+
+| | resultado | veredito |
+|---|---|---|
+| **Primário** (§6, D-12): D0 (N=30) × H3b, PSNR | Fligner p = 0,116; razão IQR(H3b)/IQR(D0) = **0,560**; IC 95% [0,140 ; 1,315] | não é "substancialmente menor" → **H3b sustentada** |
+| **Secundário:** D4b × H3b | p = 0,0139; razão IQR(H3b)/IQR(D4b) = **7,39**; IC 95% [**1,595** ; 22,893] | **aumento sustentado** |
+
+**Leitura pela tabela do §11.14.5, fixada antes de rodar: instabilidade.** Uma mudança de 1 ULP numa condição inicial produz dispersão que não se distingue da de D0. **Repetibilidade, que é o que D4b tem, não implica estabilidade.**
+
+**Contexto, fora dos critérios:** IQR(H3b)/IQR(D3) = 0,887, IC [0,211 ; 2,151], p = 0,845. **A dispersão causada por um único bit não se distingue da causada pelos atômicos de `float` em D3.**
+
+### Descritivos
+
+| | PSNR mediana | IQR | amplitude | `num_splats` distintos | densificação: 1º evento divergente |
+|---|---|---|---|---|---|
+| D0 (N=30) | 27,3599 | 0,0530 | 0,1905 | 30 | evento 0 |
+| D3 (N=30) | 27,3882 | 0,0334 | 0,0944 | 30 | evento 0 |
+| D4b | 27,3544 | 0,0040 | 0,0090 | **1** | **nenhum** (sequência única) |
+| **H3b** | 27,3374 | **0,0296** | 0,0665 | **10** | **evento 0** (10 sequências distintas) |
+
+10 hashes distintos em 10. SSIM 0,8637 e LPIPS-Alex 0,0760 em H3b, com tempo de 875 s, contra 874 s em D4b. **O bit invertido no passo 0 já muda a primeira densificação, no passo 600.**
+
+### Escrutínio, porque o resultado favorece a tese
+
+1. **A assimetria do §6 não explica o resultado sozinha.** H3b é sustentada por omissão, mas o secundário dá evidência **positiva** de amplificação: o limite inferior do IC é 1,6. Em contrapartida, o primário não exclui que a dispersão de H3b seja metade da de D0 (limite inferior 0,14).
+2. **Ameaça à validade, não prevista no §11.14: falta o controle placebo.** H3b difere de D4b em duas coisas: o bit invertido **e** a regravação do buffer inteiro de posições pelo setter (`copyToDevice`, com possível realocação), feita por outro executor. Se a regravação, por si só, disparasse a fonte residual de D4b, que é rara, não identificada e talvez dependente de endereço ou temporização, o aumento não seria atribuível ao bit.
+   - **Controle proposto, depois de ver o dado e na direção que pode enfraquecê-lo:** o mesmo executor e o mesmo setter, regravando o buffer **sem** inverter nenhum bit.
+   - **Previsão nítida:** se o setter for inócuo, as execuções placebo reproduzem **exatamente** a trajetória de D4b, com N = 5.830.035 e os 144 eventos de densificação idênticos aos de D4b. 2 ou 3 execuções bastam, porque o teste é binário.
+   - **Até lá, o aumento sobre D4b é atribuído à "perturbação mais regravação", e não ao bit sozinho.**
+3. **Consequência para a leitura de D4b.** As 10 execuções de D4b seguem praticamente uma única trajetória, com densificação idêntica e N idêntico. **A mediana de qualidade de D4b é, na prática, uma amostra** da distribuição de trajetórias que H3b revela (IQR ~0,03 dB, amplitude 0,07 dB).
+   - O QD4b continua satisfeito: os 0,034 dB abaixo de D3 estão dentro dessa dispersão.
+   - O ganho D4 → D4b, de +0,357 dB, é ~10 vezes essa dispersão.
+   - **Para o texto:** um treino repetível entrega **uma** amostra e esconde a distribuição. É o argumento central do trabalho contra o resultado de execução única e a média nua, agora com evidência direta.
+
+### Controle placebo: implementado, testado e registrado no pré-registro **antes** de rodar
+
+- **`pre-registro.md` §11.15**, entrada datada e acrescentada, que declara que o controle veio **depois** do resultado e na direção que pode enfraquecê-lo:
+  - `PLACEBO=1 bash run_h3b.sh 0 2`, N = 3, saída em `series/H3b_placebo/`;
+  - **leitura fixada:** "setter inócuo" ⇔ as 3 terminam com N = 5.830.035 e têm densificação **idêntica** à de D4b nos 144 eventos. Nesse caso, o aumento de H3b é atribuído ao bit. Caso contrário, à "perturbação mais regravação".
+- **`executar_h3b.py --placebo`:** mesmo caminho (getter, cópia, setter, releitura), mesma gaussiana, **nenhum bit invertido**, com exigência de 0 `uint32` diferentes. **`run_h3b.sh`:** a variável `PLACEBO=1` muda só o diretório de saída e o argumento do executor, e o caminho sem `PLACEBO` ficou inalterado (`diff` conferido).
+- **Testes no Mac:**
+  - caminho normal idêntico ao anterior (gaussiana 239, `0x3e068200 → 0x3e068201`);
+  - placebo com `0x3e068200 → 0x3e068200`, 0 bits diferentes, `verificado` e o mesmo SHA inicial;
+  - setter defeituoso no placebo: aborto 1;
+  - **a função `placebo()` de `analisar_h3b.py`**, testada com dados sintéticos derivados de D4b: dá "setter inócuo" para cópias de D4b, e "setter perturba" quando um único evento de densificação é alterado.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -2727,7 +2789,7 @@ Ver a entrada de 2026-10-16. As de 2026-10-15 registram que **D4 zerou de 90 a 9
 2. ~~D4b~~ **feito** em 2026-10-16;
 3. ~~diagnóstico de `.ply` em D3~~ **feito** em 2026-10-16, como diagnóstico pareado de D3, D4 e D4b, com validação e calibração. Ver a entrada de mesmo título;
 4. ~~H4~~ **declarada não executada** em 2026-10-16, por decisão do aluno, com os motivos do `PLANO.md` §5 e do pré-registro §8 (PNG/JPEG, LPIPS);
-5. **H3b: em preparação.** Adendo §11.14 em RASCUNHO; executor e orquestrador testados no Mac. Falta o commit do adendo, o teste curto no binding real e a série `run_h3b.sh 0 9` (~2,5 h);
+5. **H3b: série feita** em 2026-10-16. **Sustentada**, com aumento sustentado sobre D4b; leitura de instabilidade. **Falta o controle placebo do §11.15** (`PLACEBO=1 bash run_h3b.sh 0 2`, ~45 min), registrado antes de rodar;
 6. cópia em nuvem dos `.ply`.
 
 <!-- plano anterior, de 2026-10-05, mantido como registro:

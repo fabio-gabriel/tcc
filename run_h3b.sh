@@ -9,10 +9,12 @@
 # run_degree.sh NAO foi alterado.
 #
 # Uso:  bash run_h3b.sh <indice_inicial> <indice_final>     # ex.: 0 9
+#       PLACEBO=1 bash run_h3b.sh 0 2   # controle do §11.15, saida em series/H3b_placebo/
 
 set -euo pipefail
 
-DEGREE="H3b"
+PLACEBO="${PLACEBO:-0}"   # controle do §11.15: PLACEBO=1 regrava o buffer sem inverter bit
+if [ "$PLACEBO" = "1" ]; then DEGREE="H3b_placebo"; ARGS_RUNNER="--placebo"; else DEGREE="H3b"; ARGS_RUNNER=""; fi
 TAG="D4b"
 FIRST="${1:?uso: run_h3b.sh <inicio> <fim>}"
 LAST="${2:?falta indice final}"
@@ -148,7 +150,7 @@ for i in $(seq "$FIRST" "$LAST"); do
   echo "---------- $DEGREE run $IDX (ate $LAST)   [$(date +%H:%M:%S)] ----------"
 
   # stdbuf + python -u: evita que a saida fique presa no buffer do pipe
-  if ! stdbuf -oL -eL python -u "$RUNNER" "$i" "$OUT_ROOT" "$DEGREE" --fork "$FORK/vksplat" 2>&1 | tee "$L"; then
+  if ! stdbuf -oL -eL python -u "$RUNNER" "$i" "$OUT_ROOT" "$DEGREE" --fork "$FORK/vksplat" $ARGS_RUNNER 2>&1 | tee "$L"; then
     echo "ABORTA: execucao $IDX falhou (exit != 0). Ver $L" >&2
     exit 1
   fi

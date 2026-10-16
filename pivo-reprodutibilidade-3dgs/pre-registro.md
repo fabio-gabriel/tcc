@@ -844,3 +844,22 @@ A base é **`D4b`** (`8942107f13e70e2cad6bcf9fe29630568a6565d7`, §11.13), e nã
 | D-11 | §6: "a partir da configuração de D4" | a partir de **D4b** | §11.14.2 |
 | D-12 | §6: "substancialmente menor", sem operacionalização | o critério conjuntivo do §5.2 contra D0 | reutiliza o procedimento do trabalho, sem limiar novo de magnitude |
 | D-13 | séries por `run_degree.sh` e `tcc_runner.py` | `run_h3b.sh` e `experimentos/executar_h3b.py` | a perturbação precisa de um ponto de injeção, e o fork não é modificado. Diferenças enumeradas no §11.14.3 |
+
+### 11.15 Registro datado — 2026-10-16: controle placebo de H3b, acrescentado **depois** de ver o resultado
+
+> Entrada **acrescentada**. Não edita §11.14. **Ordem dos eventos:** a série H3b foi executada e analisada antes desta entrada (dados em `6335a17`; resultado no caderno, 2026-10-16). Este controle **não** estava no §11.14. Ele é acrescentado agora, na direção que pode **enfraquecer** o resultado, e sua leitura é fixada antes de rodar.
+
+**Ameaça que ele testa.** H3b difere de D4b em duas coisas:
+- o bit invertido;
+- a **regravação do buffer inteiro de posições** pelo setter (`copyToDevice`, com possível realocação na GPU), feita por outro executor.
+
+Se a regravação, por si só, mudasse a trajetória, por exemplo disparando a fonte residual de D4b, o aumento sustentado de H3b sobre D4b não seria atribuível ao bit.
+
+**Controle:** `PLACEBO=1 bash run_h3b.sh 0 2`, com saída em `series/H3b_placebo/`. São **N = 3** execuções no mesmo commit `D4b`, com o mesmo executor, `executar_h3b.py --placebo`, que faz o mesmo caminho: getter, cópia, setter e releitura. **Nenhum bit é invertido**, e o `env.json` exige `uint32_diferentes_apos_releitura = 0` e `verificado: true`. O orquestrador é o de H3b, e o caminho sem `PLACEBO` ficou inalterado.
+
+**Leitura, fixada antes de rodar:**
+- **setter inócuo** ⇔ as 3 execuções placebo terminam com `num_splats` = **5.830.035** e têm a sequência dos **144 eventos de densificação idêntica** à das execuções de D4b, que é única nas 10. **Nesse caso, o aumento de H3b sobre D4b é atribuído ao bit invertido**, dentro do limite de N = 3;
+- **setter perturba** ⇔ qualquer execução placebo com outro N, ou com a sequência de densificação diferente da de D4b. **Nesse caso, o aumento de H3b é atribuído à "perturbação mais regravação"**, e a leitura de instabilidade **não** é atribuível ao bit sozinho. Isso também seria um achado sobre a fonte residual: regravar dados idênticos mudaria a trajetória;
+- **não se usam os hashes**, porque as 10 execuções de D4b já têm hashes distintos. O PSNR é reportado como descritivo.
+
+**Por que N = 3 basta:** o teste é binário e sem variabilidade esperada sob a hipótese nula. As 10 execuções de D4b têm densificação e N **idênticos**.
