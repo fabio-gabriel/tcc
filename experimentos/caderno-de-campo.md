@@ -2636,6 +2636,53 @@ Para o texto:
 3. **D4:** escala e rotação ficam bit a bit iguais entre execuções em ~76% dos valores, contra ~1% em D4b. É corroboração, pelos `.ply`, de que a cônica zerada congelava a forma dessas gaussianas;
 4. **o instrumento de pareamento:** validado onde há correspondência conhecida, com cobertura de 0,90 em D4b e 0,75–0,81 em D4. A calibração por deslocamento isotrópico se mostrou otimista.
 
+## 2026-10-16 — H4 declarada não executada; H3b desenhada, implementada e testada, com adendo §11.14 em RASCUNHO
+
+### H4: cortada, por decisão do aluno
+
+O `PLANO.md` §5 já lista *"eixo 3 (H4) descartado"* entre os cortes de escopo-base. O pré-registro, §8 itens 2 e 3, registra também que a comparação de valores absolutos com o artigo do VkSplat **não é válida** sem duas correções: o artigo usa `images_4_png` e nós usamos JPEG, e a convenção do LPIPS-VGG difere. **H4 é reportada como não executada, com esses motivos.** Nenhuma execução foi feita para ela.
+
+### H3b: decisões do aluno
+
+Opções apresentadas com recomendação; o aluno escolheu as recomendadas:
+1. **base D4b**, com desvio declarado (D-11), porque D4 congela a forma de ~76% das gaussianas;
+2. **10 bits distintos, um por execução**, porque repetir o mesmo bit mediria só o resíduo de D4b;
+3. **"substancialmente menor" operado pelo §5.2 contra D0** (D-12).
+
+### Verificado no código antes de implementar
+
+- As gaussianas são inicializadas em `set_train_config` (`python_bindings.cpp:216`), antes do laço de treino (`simple_trainer.py`, função `train`).
+- O setter `_set_xyz_ws` vem do macro `DEF_ARRAY` (`:593-596`). `array_to_buffer` (`:76-83`) grava o buffer do host e chama `copyToDevice` (`buffer.cpp:312-337`).
+- `copyToDevice` faz o `memcpy` para a área intermediária sob `HOST_GUARD` e a cópia sob o **próprio** `DEVICE_GUARD`, **sem timer antes do guard**. `resizeDeviceBuffer` (`:182-192`) só realoca sob `HOST_GUARD`.
+- Portanto o setter é seguro fora de lote, ao contrário de `compute_pixel_loss_grad`, que travou o teste de estágios em 2026-10-13/14.
+
+### Implementação
+
+- `experimentos/executar_h3b.py` espelha o `tcc_runner.py` de D4b. Antes do passo 0, ele inverte o bit 0 de x de uma gaussiana escolhida pela semente `20261016`, relê o buffer, confere que **exatamente um `uint32` mudou**, e grava no `env.json` o bloco `h3b`, com a gaussiana, os bits antes e depois, o SHA-256 da posição inicial e `verificado`.
+- `run_h3b.sh` é cópia de `run_degree.sh` com três diferenças: tag `D4b` e saída em `series/H3b/`; o executor; e a checagem de `verificado`. O `diff` contra `run_degree.sh` mostra só essas três diferenças e o cabeçalho, e `bash -n` passa. **`run_degree.sh` não foi alterado.**
+
+### Testes no Mac, com stand-in de getter que copia e setter que grava
+
+- 3 execuções: gaussianas 239, 37 e 438, distintas e **iguais às previstas pela semente**. O SHA-256 da posição inicial é igual nas 3. A mudança é **exatamente 1 ULP**, conferida contra `np.nextafter`, inclusive para x negativo (`0xbf865889 → 0xbf865888`);
+- zero e denormal na ordem são pulados, e a execução 0 usa a terceira da ordem, como a regra manda;
+- **setter defeituoso**, que altera outro valor: detectado, aborto com saída 1;
+- setter ausente: aborto 1; primeiro passo diferente de 0: aborto 1; `run_idx` negativo, recusado;
+- o `env.json` tem os mesmos campos do `tcc_runner.py`, mais `runner` e `h3b`.
+
+**O que os testes não cobrem:** o binding real, ou seja, se `_set_xyz_ws` aceita o array `(N, 3)` e se a releitura confirma o bit. Isso vai para o teste curto do §11.14.4, que não entra nos dados.
+
+### Adendo
+
+`pre-registro.md` §11.14, acrescentado ao fim, em **RASCUNHO**:
+- base, perturbação, verificações e execução;
+- **critério primário:** §5.2 com D0 (N=30) × H3b (N=10), em que "substancialmente menor" ⇔ p < 0,05 **e** limite superior do IC < 1, o que refuta H3b;
+- **secundário:** D4b × H3b, aumento sustentado ⇔ p < 0,05 e limite inferior do IC > 1;
+- tabela de leitura com quatro desfechos, inclusive o **inconclusivo** por falta de poder;
+- **a assimetria declarada:** H3b é sustentada por omissão;
+- limitações; desvios D-11, D-12 e D-13.
+
+**Só vale commitado, e antes da série.**
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -2679,8 +2726,8 @@ Ver a entrada de 2026-10-16. As de 2026-10-15 registram que **D4 zerou de 90 a 9
 1. ~~teste de estágios~~ **feito**;
 2. ~~D4b~~ **feito** em 2026-10-16;
 3. ~~diagnóstico de `.ply` em D3~~ **feito** em 2026-10-16, como diagnóstico pareado de D3, D4 e D4b, com validação e calibração. Ver a entrada de mesmo título;
-4. H4, comparação com os valores publicados do VkSplat;
-5. H3b, executar ou declarar não executada;
+4. ~~H4~~ **declarada não executada** em 2026-10-16, por decisão do aluno, com os motivos do `PLANO.md` §5 e do pré-registro §8 (PNG/JPEG, LPIPS);
+5. **H3b: em preparação.** Adendo §11.14 em RASCUNHO; executor e orquestrador testados no Mac. Falta o commit do adendo, o teste curto no binding real e a série `run_h3b.sh 0 9` (~2,5 h);
 6. cópia em nuvem dos `.ply`.
 
 <!-- plano anterior, de 2026-10-05, mantido como registro:

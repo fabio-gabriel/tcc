@@ -753,3 +753,94 @@ SHA-256 dos `.spv` commitados:
 **Pendente, e condição para a série.** O relatório do verificador na Ubuntu, `verificacao_d4b.json`, não foi visto na redação desta entrada. O aluno relatou o veredito "PRONTO PARA COMMIT DE D4b", e isso é relato, não saída conferida. **Antes da primeira execução medida**, é preciso conferir que os `sha256_D4b` do relatório coincidem com os acima e que nenhum job teve saída do compilador. O relatório vai para `dados/toolchain/verificacao_d4b.json`. Uma divergência suspende a série até ser explicada.
 
 **Com esta entrada commitada e a condição acima satisfeita, D4b pode ser executado.**
+
+### 11.14 Adendo datado — 2026-10-16: H3b, estabilidade sob perturbação de um bit
+
+> **Estado: RASCUNHO, redigido em 2026-10-16.** Torna-se vinculante quando commitado, e **tem de ser commitado antes da primeira execução medida de H3b**. Governa **apenas H3b**. Entrada **acrescentada**: nenhuma linha anterior foi editada. Cumpre o §11.8: *"H3b (injeção de um bit a partir de D4) não é parametrizada aqui e exige adendo próprio."*
+
+#### 11.14.1 O que o §6 fixou, e a ordem dos eventos
+
+§6, literal: *"Teste: a partir da configuração de D4, injetar alteração de **um bit** na representação de um parâmetro inicial, e repetir com o mesmo N. Refutada se a divergência resultante for substancialmente menor que a dispersão medida em D0."*
+
+**Ordem dos eventos, declarada:** os parâmetros abaixo foram fixados **depois** de observadas as séries D0–D4b e o diagnóstico pareado de `.ply` (caderno, 2026-10-16). A defesa é a mesma do §11.12.1: o critério reutiliza o §5.2 sem mudança, e a perturbação é a mínima possível, decidida por regra e semente, sem escolha à mão. A monografia declara a ordem real.
+
+#### 11.14.2 Configuração-base: D4b, e não D4 (desvio D-11)
+
+A base é **`D4b`** (`8942107f13e70e2cad6bcf9fe29630568a6565d7`, §11.13), e não D4, como diz o §6. O motivo:
+- em D4 a cônica tem 90–98% do gradiente zerado (§11.12.2);
+- em D4, escala e rotação ficam bit a bit iguais entre execuções em ~76% dos valores (diagnóstico pareado, caderno 2026-10-16). A estabilidade de D4 seria a de um treino com a forma das gaussianas congelada, o que muda o próprio objeto de H3b;
+- D4b mantém a acumulação inteira e tem qualidade equivalente à de D3 (QD4b, caderno 2026-10-16).
+
+**Declarado:** D4b **não** é bit-exato. A série D4b tem 10 hashes distintos em 10, e a fonte residual é rara e não identificada. A dispersão de cada execução de H3b contém, portanto, a resposta à perturbação **mais** o resíduo de D4b. O resíduo foi medido: em D4b, IQR de PSNR 0,0040 dB e amplitude 0,0090 dB. A comparação secundária do §11.14.5 o separa.
+
+#### 11.14.3 A perturbação, com os valores fixados
+
+- **Parâmetro:** a coordenada **x** da posição (`xyz_ws`) de **uma** gaussiana inicial.
+- **Bit:** o **bit 0** da representação `float32`, isto é, o menos significativo da mantissa (`u32 ^= 1`). O valor passa ao vizinho a **1 ULP**.
+- **Qual gaussiana:**
+  - `ordem = default_rng(20261016).permutation(N_inicial)`;
+  - em ordem, são válidas as gaussianas cujo x é finito e normal (|x| ≥ menor normal de `float32`);
+  - **a execução k (k = 0…9) usa a k-ésima válida.** As 10 execuções perturbam 10 gaussianas distintas.
+- **Quando e como:** imediatamente antes do primeiro `train_step` (passo 0), depois de `set_train_config` ter inicializado as gaussianas (`python_bindings.cpp:216`).
+  - A perturbação entra pelo setter `_set_xyz_ws` do binding (`:593-596`): `array_to_buffer` (`:76-83`) chama `copyToDevice` (`buffer.cpp:312-337`), que abre o próprio `DEVICE_GUARD` e não cria timer antes dele. É válido fora de lote, conferido no código em 2026-10-16.
+  - **O fork não é modificado.**
+  - As escalas iniciais, que dependem das posições, já estão calculadas e **não** mudam. A alteração é de exatamente um bit numa condição inicial.
+- **Verificações dentro de cada execução, com aborto se falharem:**
+  - na releitura do buffer depois do setter, **exatamente um** `uint32` difere do estado anterior, e é o (gaussiana, x) escolhido, com o valor perturbado;
+  - o SHA-256 das posições **antes** da perturbação vai para o `env.json` e tem de ser **o mesmo nas 10 execuções**, o que confere que a inicialização é determinística.
+- **Implementação:**
+  - `experimentos/executar_h3b.py` espelha `vksplat/tcc_runner.py` de D4b: mesma configuração, mesmos campos do `env.json`, mais `runner` e `h3b`;
+  - `run_h3b.sh` é cópia de `run_degree.sh` com **três** diferenças: tag fixa `D4b` e saída em `series/H3b/`; o executor; e a checagem de `"verificado": true`. Snapshot de ambiente, recompilação incondicional e critérios do §9 são idênticos, e `run_degree.sh` **não** é alterado (desvio D-13);
+  - os dois são versionados no mesmo commit deste adendo.
+
+#### 11.14.4 Execução
+
+- **Série:** `bash run_h3b.sh 0 9`. **N = 10**, o mesmo N de D4 e D4b, que é o `N_min` do §5.1. Ambiente congelado, `ambiente.json` por execução, checagens do §9.
+- **Coleta:** `bash coleta_serie.sh H3b`.
+- **Antes da série**, um teste curto que **não** entra nos dados: uma execução de `executar_h3b.py` com `run_idx` 0, interrompida depois da linha `[h3b] … verificado` e descartada, só para confirmar o setter no binding real.
+
+#### 11.14.5 Critérios
+
+**Primário, o critério do §6.** D0 (N=30) × H3b (N=10), em PSNR, pelo procedimento do §5.2 **sem mudança**:
+- Fligner-Killeen;
+- razão IQR(H3b)/IQR(D0);
+- IC 95% bootstrap percentílico com `default_rng(20260909)` novo e 10.000 reamostragens.
+
+"Substancialmente menor" (desvio D-12) ⇔ **p < 0,05 e limite superior do IC < 1**.
+- Se satisfeito: **H3b refutada**. Uma perturbação de 1 ULP numa posição inicial produz dispersão menor que a de D0.
+- Se não: **H3b sustentada**.
+
+**Secundário 1: a perturbação acrescenta dispersão ao resíduo de D4b?** D4b (N=10) × H3b (N=10), Fligner e IC da razão IQR(H3b)/IQR(D4b), pelo mesmo procedimento. **Aumento sustentado** ⇔ p < 0,05 e limite inferior do IC > 1.
+
+**Reportados, fora dos critérios:**
+- PSNR, SSIM, LPIPS-Alex, `num_splats` e tempo, contra D0, D3 e D4b;
+- os hashes;
+- o primeiro evento de densificação em que as execuções divergem;
+- a razão IQR(H3b)/IQR(D3) com IC, como contexto.
+
+**Leitura de cada desfecho, fixada antes de rodar:**
+
+| primário (H3b × D0) | secundário (D4b × H3b) | leitura |
+|---|---|---|
+| H3b refutada | sem aumento sustentado | **estável:** um bit no início não produz dispersão detectável além do resíduo de D4b |
+| H3b refutada | aumento sustentado | a perturbação se amplifica, mas a dispersão fica abaixo da de D0: **estabilidade parcial** |
+| H3b sustentada | aumento sustentado | **instabilidade:** 1 ULP numa condição inicial produz dispersão não distinguível da de D0, ou maior. **Repetibilidade não implica estabilidade** |
+| H3b sustentada | sem aumento sustentado | **inconclusivo:** a dispersão de H3b não se distingue nem da de D0 nem da de D4b, o que indica falta de poder |
+
+**Assimetria declarada:** pela redação do §6, H3b é **sustentada por omissão**, quando não se demonstra dispersão menor. Com N=10 contra N=30, "sustentada" pode refletir falta de poder. A quarta linha da tabela e a razão de IQR com IC servem para não confundir ausência de evidência com evidência de instabilidade.
+
+#### 11.14.6 Limitações declaradas antes da execução
+
+1. **Um único tipo de perturbação:** o bit menos significativo de x da posição. Não se testam outros parâmetros, outros bits nem outras coordenadas.
+2. **D4b não é bit-exato.** O resíduo entra na dispersão de H3b, e o secundário 1 o separa só em termos de dispersão.
+3. **A dispersão de D0 contém as quatro fontes** e dois estratos de ambiente, com 20 e 10 execuções (caderno, 2026-09-21/22).
+4. **Uma cena**, `garden`.
+5. **O executor e o orquestrador são outros arquivos** que os das séries (D-13), com as diferenças enumeradas no §11.14.3.
+
+#### 11.14.7 Desvios declarados — 2026-10-16
+
+| # | o que valia | o que vale para H3b | por quê |
+|---|---|---|---|
+| D-11 | §6: "a partir da configuração de D4" | a partir de **D4b** | §11.14.2 |
+| D-12 | §6: "substancialmente menor", sem operacionalização | o critério conjuntivo do §5.2 contra D0 | reutiliza o procedimento do trabalho, sem limiar novo de magnitude |
+| D-13 | séries por `run_degree.sh` e `tcc_runner.py` | `run_h3b.sh` e `experimentos/executar_h3b.py` | a perturbação precisa de um ponto de injeção, e o fork não é modificado. Diferenças enumeradas no §11.14.3 |
