@@ -2489,6 +2489,58 @@ Dados em `dados/D4b/`, commit `9bc1086`. Análise em `experimentos/analisar_d4b.
 4. **O IC de `num_splats` é degenerado**, porque o IQR de D4b é zero. Reportar como "N idêntico nas 10", e não como um IC.
 5. **N=10.** O mesmo N com que D3 → D4 passou.
 
+## 2026-10-16 — Diagnóstico pareado de `.ply` (D3, D4, D4b): desenho fixado e script testado, **antes de qualquer dado**
+
+### Por que o diagnóstico de D3 não pode ser o de D4
+
+O `diagnosticar_ply_d4.py` só compara gaussiana por gaussiana quando as duas execuções têm o mesmo N (`diagnosticar_ply_d4.py:129-130`). Em D3, as 30 execuções têm 30 valores de N distintos, e as densificações divergem no evento 0. **Não existe "a mesma gaussiana" em duas execuções de D3.** O script também abortaria, porque o `origem.txt` aponta para o SSD, de onde os `.ply` de D3 saíram para o HD.
+
+### Desenho, escolhido pelo aluno como o mais completo
+
+**É exploratório:** definido depois de ver os dados, operacionaliza a grandeza secundária do §4 e não substitui nenhum critério pré-registrado.
+
+1. **Um único instrumento para os três degraus:** vizinho mais próximo **mútuo** na posição (scipy `cKDTree`). Mede:
+   - a fração pareada;
+   - a distância dos pares;
+   - nos pares, as diferenças de opacidade (sigmoide), escala (log), rotação (ângulo, com q ≡ −q) e SH (`f_dc`, `f_rest`).
+2. **Validação onde a correspondência é conhecida**, em D4 e D4b, pelo índice:
+   - *acerto* = fração dos pares mútuos com j = i;
+   - *cobertura* = fração dos i cujo par é i.
+
+   Se o pareamento falhar já em D4b, o número de D3 é reportado como sem interpretação.
+3. **Escala local:** a distância de cada gaussiana da referência à vizinha mais próxima no próprio modelo, para comparar com a distância entre execuções.
+4. **Medida estrita por índice em ULP** onde o N é igual, com a mesma função `comparar` de 2026-10-05. Em D4 ela tem de reproduzir o `diagnostico_ply.json`, o que serve de sanidade.
+
+**Escolhas fixadas agora, antes de calcular:**
+- referência contra 9 outras;
+- **D3: só `run020`–`run029`** (referência `run020`). É o mesmo estrato de ambiente de D4 e D4b: kernel −31, libc 8.9 e Mesa 25.2.8, conferido nos `ambiente.json`. Assim a diferença entre degraus não fica confundida com ambiente;
+- D4 e D4b: referência `run000` contra `run001`–`run009`.
+
+### Script: `experimentos/diagnosticar_ply_pareado.py`
+
+- Cada `.ply` é lido **inteiro para a RAM numa passada sequencial**, com o SHA-256 calculado no caminho e conferido contra o `manifest.tsv`; divergência aborta. O motivo: no HD USB, leitura aleatória por `memmap` seria lenta.
+- As diferenças são calculadas em blocos, direto dos `float32` brutos, e os quantis saem de um histograma de log₁₀ com bins de 0,01 década. O máximo e a fração de zeros são exatos. A primeira versão convertia o modelo inteiro para `float64`, ~2,7 GB por modelo, e foi corrigida antes de qualquer teste.
+- `--remap` reescreve o prefixo do `origem.txt` para o HD. `--max-pares` serve para medir custo. O JSON é regravado a cada par.
+
+### Testes no Mac
+
+Com `.ply` sintéticos no formato do `writePLY` e casos de resposta conhecida:
+- **acumulador de quantis contra `np.quantile`:** erro relativo ≤ 1,2%, abaixo da cota teórica de 2,4%; máximo e zeros exatos; vazio, só zeros, um valor e NaN/Inf tratados;
+- **ponta a ponta:**
+  - modelo idêntico: pareada 1, acerto 1, byte a byte idêntico, diferenças zero;
+  - jitter de 10⁻⁶: acerto 1;
+  - permutado: pareada 1, acerto ≈ 0, e "mesmo multiconjunto" pelo teste estrito;
+  - **jitter de 0,05, maior que o espaçamento local de 0,02: pareada 0,49 e acerto 0,03.** O instrumento detecta a própria falha;
+  - N diferente: pareada 0,9, sem validação;
+  - quatérnio negado: ângulo 0;
+  - vazio, referência vazia e referência com N=1: sem erro;
+  - SHA errado e arquivo ausente: aborto 1; `--max-pares 1` respeitado;
+- **dois erros meus, pegos pelo teste com resposta conhecida:**
+  - (a) a fórmula estável do ângulo (`atan2`) dava **metade** da rotação, porque o ângulo entre os quatérnios como vetores é φ e a rotação é 2φ. Corrigido para 4·atan2, e conferido com rotações conhecidas de 10⁻³, 0,5, 3 e 3,5 rad, com erro ≤ 1,1% e 3,5 rad voltando a 2π − 3,5. A troca de `arccos` por `atan2` foi feita para tirar um piso numérico de ~4·10⁻⁸ rad, que esconderia diferenças pequenas em D4b;
+  - (b) um quantil podia passar do máximo exato, pelo centro do bin, e agora é limitado a ele.
+
+**O que os testes não cobrem:** os `.ply` reais (5,8 M gaussianas, densidade real da cena), o HD USB e a memória da Ubuntu. **O custo será medido com `--max-pares 1` antes das comparações completas.**
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
