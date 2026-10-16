@@ -2541,6 +2541,66 @@ Com `.ply` sintéticos no formato do `writePLY` e casos de resposta conhecida:
 
 **O que os testes não cobrem:** os `.ply` reais (5,8 M gaussianas, densidade real da cena), o HD USB e a memória da Ubuntu. **O custo será medido com `--max-pares 1` antes das comparações completas.**
 
+### Custo medido e 27 pares executados
+
+**Custo, com 1 par de cada:**
+- D4b: 47 s por par, quase tudo na medida estrita por índice; leitura de 2 s pelo SSD;
+- D3: 26 s por par, 16 s deles lendo o HD.
+
+**Execução completa:** `D3.json`, `D4.json` e `D4b.json`, todos com `completo: true` e 9 pares; o de D3 com `--remap` para o HD. SHA-256 dos arquivos:
+- `D3.json`: `2ccfae9d8c8cf860…`;
+- `D4.json`: `82217faf9b19209a…`;
+- `D4b.json`: `187f0e9235679cdc…`.
+
+Versionados em `dados/diag_pareado/` (ainda não commitados).
+
+**Sanidade:** nos 4 pares de D4 com N igual (`run002`, `005`, `008` e `009`), a medida estrita por índice é **idêntica em 10 de 10 campos** ao `dados/D4/diagnostico_ply.json` de 2026-10-05. Os outros 5 pares têm N diferente, e neles só o pareamento se aplica.
+
+**Resultados, mediana [mínimo – máximo] entre os 9 pares:**
+
+| | D3 (`run020` × `021`–`029`) | D4 (`run000` × `001`–`009`) | D4b (`run000` × `001`–`009`) |
+|---|---|---|---|
+| espaçamento local mediano | 1,45·10⁻³ | 1,24·10⁻³ | 1,45·10⁻³ |
+| fração pareada | 0,332 [0,332 – 0,332] | 0,744 [0,744 – 0,865] | 0,926 [0,926 – 0,926] |
+| distância mediana dos pares | 1,10·10⁻³ | 3,98·10⁻⁴ [2,00 – 3,99·10⁻⁴] | 6,94·10⁻⁵ |
+| razão distância / espaçamento | **0,76** | 0,32 [0,16 – 0,32] | **0,048** |
+| validação: acerto / cobertura | — (sem correspondência conhecida) | 0,91 / 0,75 (4 pares) | **0,968 / 0,896** (9 pares) |
+| rotação nos pares, mediana | 1,46 rad (~84°) | **0** (64% exatamente zero) | 0,028 rad |
+| log-escala nos pares, mediana | 1,40 | **0** (66% exatamente zero) | 0,039 |
+| opacidade (sigmoide) nos pares, mediana | 0,111 | 0,0094 | 0,0030 |
+| `f_dc` nos pares, mediana | 0,248 | 0,065 | 0,012 |
+| **estrita**: gaussianas diferentes | — | 0,998 (4 pares) | 0,9991 (9 pares) |
+| **estrita**: mediana de log₂ ULP | — | 20 | **18** |
+| **estrita**: fração de valores diferentes, posição / opacidade / escala / rotação / SH | — | 0,997 / 0,998 / **0,235** / **0,243** / 0,959 | 0,997 / 0,998 / **0,990** / **0,991** / 0,961 |
+
+**Leituras, com a força declarada:**
+1. **D3: sem correspondência recuperável.** Só 33% das gaussianas têm vizinho mútuo, a distância dos pares é ~0,76 do espaçamento local, e as diferenças nos pares (rotação de ~84°, escala ~4×) são de **gaussianas não relacionadas**. D3 está fora do regime em que o instrumento foi validado. **As diferenças nos pares de D3 não são deriva.** O que se afirma é descritivo: dois modelos de D3 diferem na escala do próprio espaçamento entre gaussianas.
+2. **D4b: correspondência por índice; deriva de valor de ~2¹⁸ ULP**, ~4× menor que a de D4 (2²⁰). Escala e rotação derivam em ~99% dos valores.
+3. **D4: escala e rotação idênticas, bit a bit, em ~76% dos valores entre execuções**, e iguais a zero na diferença dos pares em 64–66% deles. **Isto corrobora diretamente a hipótese de 2026-10-01:** com o gradiente de cônica zerado (90–98%, medição densa de 2026-10-15), escala e rotação dessas gaussianas não eram atualizadas e ficavam iguais entre execuções. Em D4b, com a cônica ativa, o fenômeno desaparece. É uma corroboração por um caminho independente, os `.ply` em vez dos gradientes. Não é demonstração do mecanismo célula a célula.
+4. **O instrumento é imperfeito mesmo no regime fácil:** em D4b, com razão 0,048, a cobertura é 0,896. Nos dados sintéticos uniformes ela seria ~1 nessa razão. A geometria real é mais difícil, provavelmente por aglomerados de gaussianas quase coincidentes, o que é inferência.
+
+### Escrutínio pendente, com as leituras fixadas antes de rodar
+
+**(a) A referência é atípica?** Os 9 pares de D4b são quase idênticos entre si: fração diferente entre 0,99911 e 0,99912, distância de 6,90 a 6,96·10⁻⁵. Isso é o esperado se as execuções forem permutáveis, porque cada estatística é média de milhões de valores, **e** também seria o resultado se a `run000` fosse atípica e as outras nove próximas entre si. O PSNR da `run000` (27,3553) fica no meio da faixa, mas isso é indício fraco.
+- **Teste:** pares sem a referência, D4b `run001` × `run002` e D3 `run021` × `run022`.
+- **Leitura fixada:** razão entre a distância mediana desse par e a mediana dos pares com a referência
+  - em [0,8 ; 1,25]: referência **não atípica**;
+  - < 0,5: **atípica**, e o desenho de referência única fica enviesado para aquele degrau;
+  - entre os dois: inconclusivo.
+
+**(b) Calibração na geometria real.** A referência é deslocada artificialmente, com deslocamento isotrópico gaussiano, mediana igual ao alvo e semente `20261016`, e pareada consigo mesma, com correspondência conhecida.
+- **Alvos fixados:** 1·10⁻⁵, 6,9·10⁻⁵ (D4b observado), 2,0·10⁻⁴, 2,5·10⁻⁴, 4,0·10⁻⁴ (D4 observado), 1,1·10⁻³ (D3 observado) e 3·10⁻³. Aplicados à geometria de D4b (`run000`) e à de D3 (`run020`).
+- **Leitura fixada:**
+  - se a cobertura calibrada nos alvos de D4b e D4 ficar a até ±0,05 das coberturas **observadas** (0,896; 0,75–0,81), a calibração é considerada crível, e a cobertura calibrada no alvo de D3 é reportada como **cota superior** da fração de correspondência correta em D3. É superior porque, em D3, os conjuntos de gaussianas diferem também em estrutura, e não só em posição;
+  - se a calibração superestimar os pontos observados por mais de 0,05, ela é reportada como **otimista**, e D3 continua sem número, só com o argumento.
+
+**Implementado:** `--ref`, `--outros`, `--calibrar` e `--so-calibrar`. Testado no Mac:
+- constante de Maxwell (1,53817) conferida contra o valor exato e o empírico;
+- deslocamento real igual ao alvo;
+- cobertura decrescente com a razão;
+- `--ref`/`--outros` com par idêntico dá acerto 1;
+- entradas inválidas recusadas.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro

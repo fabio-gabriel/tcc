@@ -64,6 +64,8 @@ PADRAO = {"D3": ("run020", [f"run{i:03d}" for i in range(21, 30)]),
           "D4": ("run000", [f"run{i:03d}" for i in range(1, 10)]),
           "D4b": ("run000", [f"run{i:03d}" for i in range(1, 10)])}
 QUANTIS = (0.5, 0.9, 0.99, 1.0)
+MEDIANA_MAXWELL = 1.5381722544    # mediana de |N(0, I_3)| = sqrt(qui2_3^-1(0,5))
+SEMENTE_CALIBRACAO = 20261016
 
 
 def ler_ply_ram(caminho, bloco=1 << 24):
@@ -247,6 +249,12 @@ def main() -> int:
     ap.add_argument("--remap", default="", help="PREFIXO_ANTIGO=PREFIXO_NOVO para origem.txt")
     ap.add_argument("--max-pares", type=int, default=0, help="limita o numero de pares (medir custo)")
     ap.add_argument("--sem-indice", action="store_true", help="pula a medida estrita por indice")
+    ap.add_argument("--ref", default="", help="sobrepoe a referencia padrao (ex.: par sem a referencia)")
+    ap.add_argument("--outros", default="", help="sobrepoe a lista padrao, separada por virgula")
+    ap.add_argument("--calibrar", default="",
+                    help="deslocamentos medianos-alvo, separados por virgula: compara a referencia "
+                         "com ela mesma deslocada (correspondencia conhecida); so geometria")
+    ap.add_argument("--so-calibrar", action="store_true", help="faz so a calibracao, sem pares")
     a = ap.parse_args()
     if a.max_pares < 0:
         ap.error("--max-pares precisa ser >= 0")
@@ -261,6 +269,20 @@ def main() -> int:
     from diagnosticar_ply_d4 import comparar  # type: ignore  # medida estrita de 2026-10-05
 
     ref, outros = PADRAO[a.degrau]
+    if a.ref:
+        ref = a.ref
+    if a.outros:
+        outros = [x.strip() for x in a.outros.split(",") if x.strip()]
+    if ref in outros:
+        ap.error("a referencia nao pode estar em --outros")
+    alvos = []
+    if a.calibrar:
+        try:
+            alvos = [float(x) for x in a.calibrar.split(",") if x.strip()]
+        except ValueError:
+            ap.error(f"--calibrar invalido: {a.calibrar!r}")
+        if not alvos or any(x <= 0 for x in alvos):
+            ap.error("--calibrar precisa de deslocamentos > 0")
     if a.max_pares:
         outros = outros[:a.max_pares]
     man = manifesto(a.degrau)
@@ -297,6 +319,34 @@ def main() -> int:
     print(f"[pareado] {a.degrau} ref {ref}: N={ma.shape[0]}, sha256 ok, "
           f"espacamento local mediano {fmtq(rel['espacamento_local_ref'])}, "
           f"{rel['t_referencia_s']} s", flush=True)
+
+    if alvos:
+        if ta is None or len(pa_xyz) < 2:
+            print("ABORTA: calibracao exige referencia com N >= 2", file=sys.stderr)
+            return 1
+        rng = np.random.default_rng(SEMENTE_CALIBRACAO)
+        sp = (rel["espacamento_local_ref"] or {}).get("q50")
+        rel["calibracao"] = []
+        for alvo in alvos:
+            tc = time.perf_counter()
+            sigma = alvo / MEDIANA_MAXWELL
+            xb = pa_xyz + rng.normal(0.0, sigma, pa_xyz.shape)
+            ia, ib, d = parear(ta, cKDTree(xb), pa_xyz, xb)
+            n = len(pa_xyz)
+            c = {"alvo_deslocamento_mediano": alvo, "sigma": sigma,
+                 "deslocamento_real": quantis(np.linalg.norm(xb - pa_xyz, axis=1)),
+                 "razao_alvo_espacamento": alvo / sp if sp else None,
+                 "fracao_pareada": ia.size / n, "acerto": float(np.mean(ia == ib)) if ia.size else None,
+                 "cobertura": float(np.sum(ia == ib) / n), "distancia_par": quantis(d),
+                 "t_s": round(time.perf_counter() - tc, 1)}
+            rel["calibracao"].append(c)
+            gravar(a.out, rel)
+            print(f"[calibracao] alvo {alvo:.3g} (razao {c['razao_alvo_espacamento']:.3g}): pareada "
+                  f"{c['fracao_pareada']:.4f}, acerto {c['acerto']}, cobertura {c['cobertura']:.4f}, "
+                  f"{c['t_s']} s", flush=True)
+            del xb
+    if a.so_calibrar:
+        outros = []
 
     for r in outros:
         t1 = time.perf_counter()
