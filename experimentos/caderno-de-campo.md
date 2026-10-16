@@ -2601,6 +2601,41 @@ Versionados em `dados/diag_pareado/` (ainda não commitados).
 - `--ref`/`--outros` com par idêntico dá acerto 1;
 - entradas inválidas recusadas.
 
+### Resultado das duas verificações, pelas leituras fixadas acima
+
+JSONs em `dados/diag_pareado/` (`D4b_semref`, `D3_semref`, `D4b_calib`, `D3_calib`), ainda não commitados. Todos com `completo: true`.
+
+**(a) A referência não é atípica**, nos dois degraus:
+- D4b `run001` × `run002`: distância mediana 6,918·10⁻⁵, contra a mediana de 6,942·10⁻⁵ dos pares com a referência, ou seja **razão 0,997**. Pareada 0,926, acerto 0,968, cobertura 0,896 e fração de gaussianas diferentes 0,99908, iguais às dos pares com a referência;
+- D3 `run021` × `run022`: 1,103·10⁻³ contra 1,103·10⁻³, **razão 1,000**, pareada 0,332.
+
+As execuções de cada degrau são permutáveis. A quase igualdade entre os 9 pares é o efeito de médias sobre milhões de gaussianas, e **não** um viés de referência.
+
+**(b) Calibração na geometria real: otimista.** Pela regra, D3 **fica sem número**.
+
+| alvo (deslocamento mediano) | razão / espaçamento | cobertura calibrada, D4b / D3 | observado |
+|---|---|---|---|
+| 1·10⁻⁵ | 0,007 | 0,999 / 0,999 | — |
+| 6,9·10⁻⁵ | 0,048 | **0,973** / 0,971 | **0,896** (D4b) |
+| 2,0·10⁻⁴ | 0,138 | **0,904** / 0,902 | **0,809** (D4 `run005`) |
+| 2,5·10⁻⁴ | 0,173 | **0,878** / 0,877 | **0,750–0,757** (D4 `run002`, `008`, `009`) |
+| 4,0·10⁻⁴ | 0,276 | 0,809 / 0,808 | — |
+| 1,1·10⁻³ | 0,76 | 0,561 / 0,562 | — (alvo de D3) |
+| 3·10⁻³ | 2,07 | 0,249 / 0,249 | — |
+
+- **A calibração superestima a cobertura observada em +0,077, +0,095 e +0,12** nos três pontos conferíveis, todos acima de ±0,05. Pela leitura fixada, ela é **otimista** e não fornece cota para D3. **D3 fica com o argumento, sem número:** não há correspondência recuperável.
+- **Causa provável, inferida e não verificada:** a deriva real tem cauda muito mais pesada que o deslocamento isotrópico gaussiano. Em D4b, o p99 da distância dos pares é 8,3·10⁻⁴. Uma distribuição de Maxwell com a mesma mediana teria p99 ≈ 1,5·10⁻⁴. O pareamento falha justamente nas gaussianas que mais se deslocaram.
+- **Refinamento possível e não feito:** reamostrar os deslocamentos reais de D4b, conhecidos pelo índice. Seria mais uma escolha depois de ver os dados, e a regra mandava parar.
+- **Achado lateral:** as curvas nas geometrias de D3 e de D4b são **praticamente idênticas** (diferença ≤ 0,002 em cobertura). A densidade da cena é a mesma nos dois degraus, e a dificuldade do pareamento está no deslocamento, não na geometria.
+
+### Diagnóstico de `.ply`: fechado
+
+Para o texto:
+1. **D3:** os modelos de execuções nominalmente idênticas **diferem em estrutura**. Os N são distintos e a densificação diverge no evento 0. Pelo pareamento mútuo, só 33% das gaussianas têm par, a distância é ~0,76 do espaçamento local, e os pares diferem como gaussianas não relacionadas. **Não há "a mesma gaussiana" para comparar**;
+2. **D4 e D4b:** as gaussianas se correspondem pelo índice, e a diferença é **de valor**. A mediana é de ~2²⁰ ULP em D4 e ~2¹⁸ em D4b, em ~99,9% das gaussianas;
+3. **D4:** escala e rotação ficam bit a bit iguais entre execuções em ~76% dos valores, contra ~1% em D4b. É corroboração, pelos `.ply`, de que a cônica zerada congelava a forma dessas gaussianas;
+4. **o instrumento de pareamento:** validado onde há correspondência conhecida, com cobertura de 0,90 em D4b e 0,75–0,81 em D4. A calibração por deslocamento isotrópico se mostrou otimista.
+
 ## Estado em 2026-10-07 — ponto de entrada para sessão nova
 
 ### Atualização de 2026-10-07: ler isto primeiro
@@ -2643,7 +2678,7 @@ Ver a entrada de 2026-10-16. As de 2026-10-15 registram que **D4 zerou de 90 a 9
 **Plano restante, decidido pelo aluno e reconfirmado em 2026-10-15: todas as iterações antes de escrever.** Itens, em ordem:
 1. ~~teste de estágios~~ **feito**;
 2. ~~D4b~~ **feito** em 2026-10-16;
-3. diagnóstico de `.ply` em D3, com os arquivos no HD externo;
+3. ~~diagnóstico de `.ply` em D3~~ **feito** em 2026-10-16, como diagnóstico pareado de D3, D4 e D4b, com validação e calibração. Ver a entrada de mesmo título;
 4. H4, comparação com os valores publicados do VkSplat;
 5. H3b, executar ou declarar não executada;
 6. cópia em nuvem dos `.ply`.
